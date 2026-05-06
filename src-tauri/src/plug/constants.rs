@@ -1,7 +1,6 @@
 pub const MIN_FAN_SPEED: i64 = 20;
 pub const FAN_RAMP_STEP: i64 = 10;
 pub const FAN_RAMP_STEP_DOWN: i64 = 6;
-pub const CONTROL_SLEEP_MS: u64 = 3000;
 pub const TEMP_EMERGENCY: i64 = 95;
 pub const TEMP_EMA_ALPHA: f64 = 0.4;
 pub const SPEED_EMA_ALPHA: f64 = 0.6;
@@ -15,6 +14,9 @@ pub const MAX_SENSOR_RPM: i64 = 7000;
 
 pub const DEFAULT_RAMP_UP_STEP: i64 = FAN_RAMP_STEP;
 pub const DEFAULT_RAMP_DOWN_STEP: i64 = FAN_RAMP_STEP_DOWN;
+/// 唤醒冷却期内使用的安全风扇转速百分比
+pub const WAKE_COOLDOWN_SPEED: i64 = 25;
+
 pub const DEFAULT_MODE: &str = "office";
 pub const DEFAULT_CPU_HYSTERESIS_BANDWIDTH: i64 = 5;
 pub const DEFAULT_GPU_HYSTERESIS_BANDWIDTH: i64 = 5;

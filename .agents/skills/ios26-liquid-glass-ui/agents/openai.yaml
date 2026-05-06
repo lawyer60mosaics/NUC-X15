@@ -1,0 +1,6 @@
+interface:
+  display_name: "iOS 26 Liquid Glass UI"
+  short_description: "Design polished iOS 26 Liquid Glass interfaces."
+  default_prompt: "Use $ios26-liquid-glass-ui to redesign this frontend with an iOS 26 Liquid Glass visual system."
+policy:
+  allow_implicit_invocation: true

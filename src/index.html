@@ -1,559 +1,1490 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NUCtool 风扇控制</title>
-  <meta name="description" content="场景化风扇控制：一键切换，自动管理风扇转速" />
-
+  <title>NUCtool Fan Control</title>
+  <meta name="description" content="NUC 风扇状态监控与控制面板" />
   <script src="./assets/chart.js"></script>
-
   <style>
-    :root {
-      --bg-a: #eff5fc;
-      --bg-b: #dde8f8;
-      --ink: #1d2d40;
-      --muted: #4d667f;
-      --line: rgba(29, 45, 64, 0.12);
-      --panel: rgba(255, 255, 255, 0.86);
-      --accent: #2b75cf;
-      --accent-2: #18a29e;
-      --ok: #2d965f;
-      --warn: #d28a0d;
-      --danger: #d44f40;
-      --shadow: 0 12px 28px rgba(19, 43, 70, 0.12);
-      --radius: 14px;
+    :root,
+    [data-theme="dark"] {
+      --bg: #121315;
+      --bg-soft: #222427;
+      --sidebar: rgba(48, 51, 56, 0.38);
+      --glass: rgba(82, 88, 98, 0.18);
+      --glass-raised: rgba(105, 112, 124, 0.26);
+      --glass-solid: rgba(58, 63, 70, 0.72);
+      --surface: linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.045));
+      --surface-strong: linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.09));
+      --control: rgba(255, 255, 255, 0.105);
+      --control-hover: rgba(255, 255, 255, 0.17);
+      --text: rgba(255, 255, 255, 0.92);
+      --text-2: rgba(255, 255, 255, 0.62);
+      --text-3: rgba(255, 255, 255, 0.38);
+      --line: rgba(255, 255, 255, 0.135);
+      --line-soft: rgba(255, 255, 255, 0.06);
+      --blue: #007aff;
+      --blue-soft: rgba(0, 122, 255, 0.2);
+      --green: #32d74b;
+      --orange: #ff9f0a;
+      --red: #ff453a;
+      --shadow: 0 34px 96px rgba(0, 0, 0, 0.34), 0 10px 34px rgba(0, 0, 0, 0.18);
+      --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.2);
+      --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.34), inset 0 -1px 0 rgba(255, 255, 255, 0.055);
+      --radius: 22px;
+      --radius-sm: 15px;
     }
 
-    * {
-      box-sizing: border-box;
+    [data-theme="light"] {
+      --bg: #f5f5f7;
+      --bg-soft: #e9edf3;
+      --sidebar: rgba(255, 255, 255, 0.42);
+      --glass: rgba(255, 255, 255, 0.32);
+      --glass-raised: rgba(255, 255, 255, 0.48);
+      --glass-solid: rgba(255, 255, 255, 0.72);
+      --surface: linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.34));
+      --surface-strong: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.48));
+      --control: rgba(255, 255, 255, 0.42);
+      --control-hover: rgba(255, 255, 255, 0.62);
+      --text: rgba(0, 0, 0, 0.86);
+      --text-2: rgba(0, 0, 0, 0.58);
+      --text-3: rgba(0, 0, 0, 0.34);
+      --line: rgba(255, 255, 255, 0.68);
+      --line-soft: rgba(0, 0, 0, 0.07);
+      --shadow: 0 30px 90px rgba(66, 78, 102, 0.16), 0 8px 30px rgba(66, 78, 102, 0.1);
+      --shadow-soft: 0 18px 44px rgba(66, 78, 102, 0.12);
+      --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.82), inset 0 -1px 0 rgba(255, 255, 255, 0.3);
     }
 
-    html,
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+
     body {
       margin: 0;
-      min-height: 100%;
-      color: var(--ink);
-      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Noto Sans SC", sans-serif;
       background:
-        radial-gradient(760px 420px at -10% -10%, rgba(43, 117, 207, 0.2), transparent 58%),
-        radial-gradient(760px 420px at 105% -12%, rgba(24, 162, 158, 0.18), transparent 56%),
-        linear-gradient(156deg, var(--bg-a), var(--bg-b));
+        linear-gradient(118deg, rgba(0, 122, 255, 0.22), transparent 46%),
+        linear-gradient(250deg, rgba(100, 210, 255, 0.15), transparent 54%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 28%),
+        linear-gradient(135deg, var(--bg), var(--bg-soft));
+      overflow-x: hidden;
     }
 
-    .app {
-      width: min(1040px, calc(100% - 20px));
-      margin: 14px auto 20px;
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        linear-gradient(100deg, transparent 0 32%, rgba(255, 255, 255, 0.03) 52%, transparent 76%),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px);
+      background-size: 100% 100%, 56px 56px, 56px 56px;
+      mask-image: linear-gradient(to bottom, black, transparent 86%);
     }
 
-    .panel {
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: var(--panel);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(7px);
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        linear-gradient(112deg, transparent 0 12%, rgba(255, 255, 255, 0.035) 42%, transparent 84%),
+        linear-gradient(292deg, transparent 0 34%, rgba(100, 210, 255, 0.038) 66%, transparent 100%);
+      opacity: 0.65;
     }
 
-    .hero {
+    button, input { font: inherit; }
+    button { cursor: pointer; color: inherit; }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 212px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 14px 12px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035));
+      border-right: 1px solid var(--line-soft);
+      box-shadow: var(--glass-edge), 14px 0 44px rgba(0, 0, 0, 0.16);
+      backdrop-filter: blur(34px) saturate(190%) brightness(1.08);
+      -webkit-backdrop-filter: blur(34px) saturate(190%) brightness(1.08);
+    }
+
+    .traffic-lights {
+      height: 20px;
       display: flex;
-      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin: 2px 0 18px 4px;
+    }
+
+    .traffic-lights span {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.28);
+    }
+
+    .traffic-lights span:nth-child(1) { background: #ff5f57; }
+    .traffic-lights span:nth-child(2) { background: #ffbd2e; }
+    .traffic-lights span:nth-child(3) { background: #28c840; }
+
+    .brand {
+      padding: 4px 8px 18px;
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .brand-sub {
+      margin-top: 2px;
+      font-size: 12px;
+      color: var(--text-3);
+    }
+
+    .nav {
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav-item {
+      width: 100%;
+      height: 36px;
+      display: flex;
       align-items: center;
       gap: 10px;
-      padding: 14px 15px;
-      margin-bottom: 10px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 14px;
+      background: transparent;
+      color: var(--text-2);
+      text-align: left;
     }
 
-    .hero h1 {
-      margin: 0;
-      font-size: 24px;
-      letter-spacing: 0.3px;
+    .nav-item:hover { background: var(--control); color: var(--text); box-shadow: var(--glass-edge); }
+    .nav-item.active {
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: var(--glass-edge), 0 10px 24px rgba(0, 0, 0, 0.14);
+      backdrop-filter: blur(18px) saturate(170%);
+      -webkit-backdrop-filter: blur(18px) saturate(170%);
     }
+    .nav-icon { width: 20px; text-align: center; }
 
-    .hero p {
-      margin: 6px 0 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .status {
-      display: flex;
+    .sidebar-footer {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 14px;
+      display: grid;
       gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
     }
 
-    .badge {
+    .status-pill {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      border: 1px solid var(--line);
+      gap: 8px;
+      min-height: 32px;
+      padding: 7px 10px;
       border-radius: 999px;
-      padding: 5px 10px;
-      background: rgba(255, 255, 255, 0.9);
-      color: var(--muted);
+      background: var(--surface);
+      color: var(--text-2);
       font-size: 12px;
+      border: 1px solid var(--line);
+      box-shadow: var(--glass-edge);
+      backdrop-filter: blur(20px) saturate(170%);
+      -webkit-backdrop-filter: blur(20px) saturate(170%);
     }
 
     .dot {
       width: 8px;
       height: 8px;
-      border-radius: 50%;
-      background: #8ba0b6;
-      box-shadow: 0 0 0 0 rgba(139, 160, 182, 0.35);
-      transition: 0.2s ease;
+      border-radius: 999px;
+      background: var(--text-3);
+      flex: 0 0 auto;
     }
 
-    .dot[data-state="active"] {
-      background: var(--ok);
-      box-shadow: 0 0 0 5px rgba(45, 150, 95, 0.13);
+    .dot[data-state="active"] { background: var(--green); box-shadow: 0 0 0 4px rgba(50, 215, 75, 0.12); }
+    .dot[data-state="warn"] { background: var(--orange); box-shadow: 0 0 0 4px rgba(255, 159, 10, 0.12); }
+    .dot[data-state="danger"] { background: var(--red); box-shadow: 0 0 0 4px rgba(255, 69, 58, 0.12); }
+
+    .content {
+      min-width: 0;
+      padding: 18px 22px 34px;
     }
 
-    .dot[data-state="warn"] {
-      background: var(--warn);
-      box-shadow: 0 0 0 5px rgba(210, 138, 13, 0.14);
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
     }
 
-    .dot[data-state="danger"] {
-      background: var(--danger);
-      box-shadow: 0 0 0 5px rgba(212, 79, 64, 0.14);
+    .title h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.12;
+      font-weight: 720;
+      letter-spacing: 0;
+      text-shadow: 0 1px 14px rgba(255, 255, 255, 0.08);
     }
+
+    .title p {
+      margin: 4px 0 0;
+      color: var(--text-2);
+      font-size: 13px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .icon-btn,
+    .capsule-btn,
+    .primary,
+    .secondary {
+      border: 0;
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: var(--glass-edge), 0 10px 26px rgba(0, 0, 0, 0.12);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      transition: transform 160ms ease, background 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+    }
+
+    .icon-btn {
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+    }
+
+    .capsule-btn,
+    .primary,
+    .secondary {
+      min-height: 34px;
+      padding: 0 14px;
+      font-size: 13px;
+      font-weight: 560;
+    }
+
+    .primary {
+      background: linear-gradient(180deg, rgba(52, 145, 255, 0.92), rgba(0, 122, 255, 0.72));
+      color: white;
+      border-color: rgba(255, 255, 255, 0.28);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44), 0 12px 30px rgba(0, 122, 255, 0.26);
+    }
+    .secondary:hover,
+    .capsule-btn:hover,
+    .icon-btn:hover { background: var(--surface-strong); box-shadow: var(--glass-edge), 0 14px 30px rgba(0, 0, 0, 0.18); }
+    button:active { transform: scale(0.97); }
+
+    .live-strip,
+    .alert {
+      margin-bottom: 12px;
+      border-radius: 14px;
+      padding: 10px 13px;
+      background: var(--surface);
+      box-shadow: var(--shadow-soft);
+      color: var(--text-2);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      font-size: 13px;
+    }
+
+    .live-strip.safe { color: rgba(50, 215, 75, 0.92); }
+    .live-strip.warm { color: var(--orange); }
+    .live-strip.hot { color: var(--red); }
 
     .alert {
       display: none;
-      margin-bottom: 10px;
-      border: 1px solid rgba(212, 79, 64, 0.28);
-      border-radius: 10px;
-      padding: 10px 12px;
-      background: linear-gradient(120deg, rgba(212, 79, 64, 0.12), rgba(212, 79, 64, 0.06));
-      color: #7c241b;
-      font-size: 13px;
+      color: var(--red);
+      background: rgba(255, 69, 58, 0.12);
     }
 
-    .alert.visible {
-      display: block;
+    .alert.visible { display: block; }
+
+    .panel {
+      position: relative;
+      border-radius: var(--radius);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: var(--glass-edge), var(--shadow-soft);
+      backdrop-filter: blur(32px) saturate(190%) brightness(1.04);
+      -webkit-backdrop-filter: blur(32px) saturate(190%) brightness(1.04);
+      overflow: hidden;
     }
 
-    .live-strip {
-      border: 1px solid transparent;
-      border-radius: 10px;
-      padding: 8px 12px;
-      margin-bottom: 10px;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.2px;
-      transition: 0.2s ease;
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.22), transparent 31%),
+        linear-gradient(315deg, rgba(255, 255, 255, 0.065), transparent 36%),
+        linear-gradient(98deg, transparent 0 54%, rgba(255, 255, 255, 0.075) 58%, transparent 64%);
+      opacity: 0.62;
     }
 
-    .live-strip.safe {
-      color: #1e5b3a;
-      border-color: rgba(45, 150, 95, 0.28);
-      background: linear-gradient(120deg, rgba(45, 150, 95, 0.16), rgba(45, 150, 95, 0.08));
+    .panel > * {
+      position: relative;
+      z-index: 1;
     }
 
-    .live-strip.warm {
-      color: #7a4f00;
-      border-color: rgba(210, 138, 13, 0.32);
-      background: linear-gradient(120deg, rgba(210, 138, 13, 0.17), rgba(210, 138, 13, 0.08));
+    .panel-pad { padding: 16px; }
+
+    .section-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
     }
 
-    .live-strip.hot {
-      color: #7c241b;
-      border-color: rgba(212, 79, 64, 0.34);
-      background: linear-gradient(120deg, rgba(212, 79, 64, 0.19), rgba(212, 79, 64, 0.08));
+    .section-label h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 680;
+      color: var(--text);
     }
 
-    .kpis {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-
-    .kpi {
-      padding: 12px;
-    }
-
-    .kpi-label {
-      color: var(--muted);
+    .section-label span {
+      color: var(--text-3);
       font-size: 12px;
-      margin-bottom: 8px;
     }
 
-    .kpi-value {
-      font-size: 34px;
-      font-weight: 700;
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(240px, 1fr));
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .ring-card {
+      min-height: 214px;
+      display: grid;
+      grid-template-columns: 166px minmax(0, 1fr);
+      align-items: center;
+      gap: 18px;
+      padding: 18px;
+    }
+
+    .ring {
+      --temp: 0;
+      --fan: 0;
+      width: 154px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.34), transparent 10%),
+        radial-gradient(circle at center, rgba(255, 255, 255, 0.105) 0 47%, transparent 48%),
+        conic-gradient(var(--blue) calc(var(--fan) * 1%), rgba(255, 255, 255, 0.105) 0),
+        conic-gradient(from 180deg, var(--green), var(--orange), var(--red) calc(var(--temp) * 1%), rgba(255, 255, 255, 0.085) 0);
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.36), inset 0 -10px 30px rgba(0, 0, 0, 0.13), var(--shadow-soft);
+      border: 1px solid rgba(255, 255, 255, 0.145);
+    }
+
+    .ring-inner {
+      width: 104px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.065));
+      box-shadow: var(--glass-edge), inset 0 -16px 24px rgba(0, 0, 0, 0.12);
+      backdrop-filter: blur(18px) saturate(180%);
+      -webkit-backdrop-filter: blur(18px) saturate(180%);
+      text-align: center;
+    }
+
+    .ring-value {
+      font-size: 36px;
       line-height: 1;
+      font-weight: 730;
       font-variant-numeric: tabular-nums;
     }
 
-    .kpi-unit {
-      margin-left: 4px;
-      color: var(--muted);
+    .ring-unit {
+      margin-top: 3px;
+      color: var(--text-3);
       font-size: 12px;
     }
 
-    .main {
+    .metrics {
       display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
+      gap: 12px;
+      min-width: 0;
     }
 
-    .section {
-      padding: 13px;
+    .metric-label {
+      color: var(--text-3);
+      font-size: 12px;
+      margin-bottom: 2px;
     }
 
-    .section h2 {
-      margin: 0 0 10px;
+    .metric-value {
+      font-size: 24px;
+      line-height: 1.1;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-unit {
+      margin-left: 4px;
+      color: var(--text-3);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .kpi-thermal-bar {
+      height: 5px;
+      margin-top: 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.18);
+      overflow: hidden;
+    }
+
+    .kpi-thermal-dot {
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--green), var(--orange), var(--red));
+      transition: width 300ms ease, left 300ms ease;
+    }
+
+    .scene-panel {
+      margin-bottom: 12px;
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px;
+      padding: 5px;
+      border-radius: 18px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: var(--glass-edge);
+      backdrop-filter: blur(22px) saturate(180%);
+      -webkit-backdrop-filter: blur(22px) saturate(180%);
+    }
+
+    .scene-btn {
+      min-height: 42px;
+      border: 0;
+      border-radius: 14px;
+      background: transparent;
+      color: var(--text-2);
+      font-size: 13px;
+      font-weight: 610;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+    }
+
+    .scene-btn.active {
+      background: var(--surface-strong);
+      color: var(--text);
+      box-shadow: var(--glass-edge), 0 12px 28px rgba(0, 0, 0, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+    }
+
+    .scene-btn.disabled { opacity: 0.38; pointer-events: none; }
+    .scene-reco, .scene-tags, .scene-desc { display: none; }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .setting-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .setting-title {
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .mode-hint,
+    .setting-sub {
+      margin-top: 3px;
+      color: var(--text-3);
+      font-size: 12px;
+    }
+
+    .mode-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .switch-button {
+      position: relative;
+      width: 52px;
+      height: 30px;
+      padding: 0;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+      font-size: 0;
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      box-shadow: var(--glass-edge);
+    }
+
+    .switch-button::after {
+      content: "";
+      position: absolute;
+      width: 26px;
+      height: 26px;
+      left: 2px;
+      top: 2px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 7px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      transition: transform 180ms ease;
+    }
+
+    .switch-button.primary { background: linear-gradient(180deg, rgba(89, 231, 112, 0.92), rgba(50, 215, 75, 0.74)); }
+    .switch-button.primary::after { transform: translateX(22px); }
+
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 18px;
+      appearance: none;
+      background: transparent;
+    }
+
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 4px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(0, 122, 255, 0.95), rgba(100, 210, 255, 0.72));
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.24);
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      margin-top: -8px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+      border: 0.5px solid rgba(0, 0, 0, 0.08);
+    }
+
+    input[type="range"]:disabled {
+      opacity: 0.4;
+    }
+
+    .setting-value {
+      min-width: 48px;
+      text-align: right;
+      font-size: 15px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .power-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .power-segmented {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 5px;
+      padding: 5px;
+      border-radius: 18px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: var(--glass-edge);
+    }
+
+    .power-btn {
+      min-height: 58px;
+      display: grid;
+      place-items: center;
+      gap: 3px;
+      border: 0;
+      border-radius: 14px;
+      background: transparent;
+      color: var(--text-2);
+    }
+
+    .power-btn.active {
+      color: var(--text);
+      background: var(--surface-strong);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      box-shadow: var(--glass-edge), 0 12px 28px rgba(0, 0, 0, 0.16);
+    }
+
+    .power-btn:disabled {
+      cursor: wait;
+      opacity: 0.62;
+    }
+
+    .power-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .power-sub {
+      color: var(--text-3);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .power-readout {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .power-readout div {
+      min-height: 58px;
+      padding: 10px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.055);
+      border: 1px solid var(--line-soft);
+    }
+
+    .power-readout span {
+      display: block;
+      color: var(--text-3);
+      font-size: 11px;
+    }
+
+    .power-readout strong {
+      display: block;
+      margin-top: 5px;
+      color: var(--text);
       font-size: 16px;
-      color: #27445f;
+      font-variant-numeric: tabular-nums;
     }
 
-    .scene-grid {
+    .mini-button {
+      width: auto;
+      min-height: 34px;
+      padding: 0 14px;
+      flex: 0 0 auto;
+    }
+
+    .button-row,
+    .quick-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
     }
 
-    .scene-btn {
-      border: 1px solid var(--line);
-      border-radius: 11px;
-      background: rgba(255, 255, 255, 0.94);
-      color: var(--ink);
-      text-align: left;
-      padding: 10px;
-      cursor: pointer;
-      transition: 0.18s ease;
-      min-height: 84px;
-    }
-
-    .scene-btn:hover {
-      transform: translateY(-1px);
-      border-color: rgba(43, 117, 207, 0.36);
-    }
-
-    .scene-btn.active {
-      color: #fff;
-      border-color: rgba(35, 106, 192, 0.42);
-      background: linear-gradient(114deg, var(--accent), var(--accent-2));
-      box-shadow: 0 9px 20px rgba(34, 106, 190, 0.28);
-    }
-
-    .scene-title {
-      font-size: 15px;
-      font-weight: 600;
-      margin-bottom: 6px;
-      display: block;
-    }
-
-    .scene-tags {
+    .check-row {
       display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      color: var(--text-2);
+      font-size: 13px;
     }
 
-    .tag {
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--blue);
+    }
+
+    .system-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .system-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 36px;
+      padding: 0 2px;
+      color: var(--text-2);
+      font-size: 13px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .system-row:last-child { border-bottom: 0; }
+    .system-row strong {
       display: inline-flex;
       align-items: center;
-      padding: 2px 7px;
-      border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.28);
-      font-size: 11px;
-      line-height: 1.3;
-      background: rgba(255, 255, 255, 0.16);
-      color: currentColor;
-    }
-
-    .scene-btn:not(.active) .tag {
-      border-color: rgba(29, 45, 64, 0.16);
-      background: rgba(255, 255, 255, 0.76);
-      color: var(--muted);
-    }
-
-    .scene-desc {
-      margin-top: 7px;
-      font-size: 12px;
-      opacity: 0.9;
-    }
-
-    .action-row {
-      margin-top: 10px;
-      display: flex;
       gap: 8px;
-      flex-wrap: wrap;
+      color: var(--text);
+      font-weight: 650;
+      text-align: right;
+    }
+
+    .system-badge {
+      display: inline-flex;
       align-items: center;
-    }
-
-    button.primary,
-    button.secondary {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 8px 12px;
-      cursor: pointer;
-      font: inherit;
-      font-size: 13px;
-      transition: 0.18s ease;
-    }
-
-    button.primary {
-      color: #fff;
-      border-color: rgba(35, 106, 192, 0.32);
-      background: linear-gradient(114deg, var(--accent), var(--accent-2));
-      box-shadow: 0 9px 20px rgba(34, 106, 190, 0.25);
-    }
-
-    button.secondary {
-      color: var(--ink);
-      background: rgba(255, 255, 255, 0.9);
-    }
-
-    button.primary:hover,
-    button.secondary:hover {
-      transform: translateY(-1px);
-    }
-
-    .hint {
-      margin-top: 8px;
-      color: var(--muted);
+      min-height: 24px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: var(--blue-soft);
+      color: var(--blue);
       font-size: 12px;
-      line-height: 1.45;
     }
 
-    .trend {
-      padding: 13px;
-    }
-
-    .trend h2 {
-      margin: 0 0 10px;
-      font-size: 16px;
-      color: #27445f;
+    .chart-panel {
+      margin-top: 12px;
     }
 
     .chart-wrap {
-      position: relative;
-      height: 250px;
+      height: 260px;
+      padding: 8px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.055);
+      border: 1px solid var(--line-soft);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
     }
 
-    canvas {
+    .chart-wrap canvas {
       width: 100% !important;
       height: 100% !important;
     }
 
-    body.monitor-mode .app {
-      width: calc(100% - 16px);
-      margin: 8px auto 10px;
+    .thermal-console {
+      margin-top: 12px;
+      border-radius: var(--radius);
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.045));
+      border: 1px solid var(--line);
+      box-shadow: var(--glass-edge), var(--shadow-soft);
+      overflow: hidden;
+      backdrop-filter: blur(28px) saturate(180%);
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     }
 
-    body.monitor-mode .hero {
-      margin-bottom: 8px;
+    .thermal-console-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: 34px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--text-3);
+      font-size: 11px;
+    }
+
+    .console-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .console-dot.r { background: #ff5f57; }
+    .console-dot.y { background: #ffbd2e; }
+    .console-dot.g { background: #28c840; }
+
+    .thermal-console-body {
+      max-height: 142px;
+      overflow: auto;
       padding: 10px 12px;
+      color: var(--text-2);
+      font-size: 12px;
+      line-height: 1.65;
     }
 
-    body.monitor-mode .hero h1 {
-      font-size: 21px;
-    }
-
-    body.monitor-mode .hero p,
-    body.monitor-mode .hint,
-    body.monitor-mode .trend,
-    body.monitor-mode #saveConfigButton,
-    body.monitor-mode #loadConfigButton,
-    body.monitor-mode .alert {
-      display: none !important;
-    }
-
-    body.monitor-mode .badge {
-      font-size: 13px;
-      padding: 7px 12px;
-    }
-
-    body.monitor-mode .kpis {
+    .log-line {
+      display: grid;
+      grid-template-columns: 74px 48px minmax(0, 1fr);
       gap: 8px;
     }
 
-    body.monitor-mode .kpi {
-      padding: 14px;
+    .log-time, .log-tag { color: var(--text-3); }
+    .log-tag.warn { color: var(--orange); }
+    .log-tag.err { color: var(--red); }
+
+    .cursor {
+      display: inline-block;
+      width: 6px;
+      height: 13px;
+      margin-left: 3px;
+      background: var(--blue);
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
     }
 
-    body.monitor-mode .kpi-label {
-      font-size: 16px;
-      margin-bottom: 10px;
+    .toast-stack {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 100;
+      display: grid;
+      gap: 8px;
+      width: min(340px, calc(100vw - 36px));
     }
 
-    body.monitor-mode .kpi-value {
-      font-size: clamp(52px, 7.8vw, 96px);
-    }
-
-    body.monitor-mode .kpi-unit {
-      font-size: 16px;
-    }
-
-    body.monitor-mode .section {
-      padding: 14px;
-    }
-
-    body.monitor-mode .section h2 {
-      font-size: 20px;
-      margin-bottom: 12px;
-    }
-
-    body.monitor-mode .scene-btn {
-      min-height: 108px;
-      padding: 12px;
-    }
-
-    body.monitor-mode .scene-title {
-      font-size: 20px;
-      margin-bottom: 8px;
-    }
-
-    body.monitor-mode .tag {
+    .toast {
+      padding: 11px 13px;
+      border-radius: 14px;
+      background: var(--surface-strong);
+      color: var(--text);
+      border: 1px solid var(--line);
+      box-shadow: var(--glass-edge), var(--shadow-soft);
+      backdrop-filter: blur(26px) saturate(180%);
+      -webkit-backdrop-filter: blur(26px) saturate(180%);
+      white-space: pre-line;
       font-size: 13px;
-      padding: 3px 9px;
+      animation: toast-in 180ms ease-out;
     }
 
-    body.monitor-mode .scene-desc {
-      font-size: 15px;
-      margin-top: 9px;
+    .toast.leaving {
+      opacity: 0;
+      transform: translateY(6px);
     }
 
-    body.monitor-mode .action-row {
-      margin-top: 12px;
+    :root,
+    [data-theme="dark"],
+    [data-theme="light"] {
+      --bg: #030303;
+      --bg-soft: #080808;
+      --sidebar: #070707;
+      --glass: #0b0b0b;
+      --glass-raised: #111111;
+      --glass-solid: #111111;
+      --surface: #0c0c0d;
+      --surface-strong: #151516;
+      --control: #141414;
+      --control-hover: #1b1012;
+      --text: #ffffff;
+      --text-2: rgba(255, 255, 255, 0.78);
+      --text-3: rgba(255, 255, 255, 0.52);
+      --line: rgba(255, 255, 255, 0.1);
+      --line-soft: rgba(255, 255, 255, 0.06);
+      --blue: #e50914;
+      --blue-soft: rgba(229, 9, 20, 0.18);
+      --green: #ffffff;
+      --orange: #ff3b30;
+      --red: #e50914;
+      --shadow: 0 14px 34px rgba(0, 0, 0, 0.46);
+      --shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.36);
+      --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06);
     }
 
-    body.monitor-mode button.primary,
-    body.monitor-mode button.secondary {
-      font-size: 14px;
-      padding: 10px 14px;
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
 
-    @media (max-width: 860px) {
-      .kpis {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .scene-grid {
-        grid-template-columns: 1fr;
-      }
+    body {
+      background: #030303;
     }
 
-    @media (max-width: 620px) {
-      .app {
-        width: calc(100% - 14px);
-      }
+    body::after {
+      display: none;
+    }
 
-      .hero {
-        flex-direction: column;
-        align-items: flex-start;
-      }
+    body::before {
+      background:
+        linear-gradient(90deg, rgba(229, 9, 20, 0.055) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(229, 9, 20, 0.035) 1px, transparent 1px);
+      background-size: 72px 72px;
+      opacity: 0.32;
+      mask-image: linear-gradient(to bottom, black, transparent 72%);
+    }
 
-      .status {
-        justify-content: flex-start;
-      }
+    #themeToggle {
+      display: none;
+    }
 
-      .kpis {
-        grid-template-columns: 1fr;
-      }
+    .sidebar,
+    .panel,
+    .live-strip,
+    .alert,
+    .segmented,
+    .power-segmented,
+    .thermal-console,
+    .toast,
+    .status-pill,
+    .icon-btn,
+    .capsule-btn,
+    .primary,
+    .secondary,
+    .ring-inner {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
 
-      .kpi-value {
-        font-size: 30px;
+    .sidebar {
+      background: #070707;
+      border-right-color: rgba(229, 9, 20, 0.16);
+      box-shadow: 12px 0 34px rgba(0, 0, 0, 0.4);
+    }
+
+    .panel,
+    .live-strip,
+    .segmented,
+    .power-segmented,
+    .thermal-console,
+    .chart-wrap {
+      background: #0b0b0c;
+      border-color: rgba(255, 255, 255, 0.08);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .panel::before {
+      display: none;
+    }
+
+    .title h1,
+    .ring-value,
+    .metric-value,
+    .power-readout strong,
+    .system-row strong,
+    .setting-value,
+    .brand-title {
+      color: #ffffff;
+      text-shadow: none;
+    }
+
+    .primary {
+      background: #e50914;
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 0 0 1px rgba(229, 9, 20, 0.32), 0 12px 28px rgba(229, 9, 20, 0.18);
+    }
+
+    .secondary,
+    .capsule-btn,
+    .icon-btn {
+      background: #111111;
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.1);
+      box-shadow: none;
+    }
+
+    .secondary:hover,
+    .capsule-btn:hover,
+    .icon-btn:hover,
+    .nav-item:hover {
+      background: #1a0b0d;
+      box-shadow: inset 3px 0 0 #e50914;
+    }
+
+    button:active {
+      transform: none;
+    }
+
+    .nav-item.active,
+    .scene-btn.active,
+    .power-btn.active {
+      background: #1a0b0d;
+      color: #ffffff;
+      border-color: rgba(229, 9, 20, 0.38);
+      box-shadow: inset 3px 0 0 #e50914;
+    }
+
+    .system-badge,
+    .status-pill {
+      background: rgba(229, 9, 20, 0.13);
+      color: #ffffff;
+      border-color: rgba(229, 9, 20, 0.24);
+    }
+
+    .dot[data-state="active"],
+    .dot[data-state="warn"],
+    .dot[data-state="danger"] {
+      background: #e50914;
+      box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.14);
+    }
+
+    .live-strip.safe,
+    .live-strip.warm,
+    .live-strip.hot,
+    .log-tag.warn,
+    .log-tag.err {
+      color: #ff4d57;
+    }
+
+    .alert {
+      color: #ffffff;
+      background: rgba(229, 9, 20, 0.16);
+      border-color: rgba(229, 9, 20, 0.34);
+    }
+
+    .ring {
+      background:
+        radial-gradient(circle at center, #080808 0 47%, transparent 48%),
+        conic-gradient(#e50914 calc(var(--fan) * 1%), rgba(255, 255, 255, 0.08) 0),
+        conic-gradient(from 180deg, #ffffff, #ff4d57, #e50914 calc(var(--temp) * 1%), rgba(255, 255, 255, 0.08) 0);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 12px 28px rgba(0,0,0,0.4);
+    }
+
+    .ring-inner,
+    .power-readout div,
+    .chart-wrap {
+      background: #070707;
+      border-color: rgba(255, 255, 255, 0.08);
+      box-shadow: none;
+    }
+
+    .kpi-thermal-dot,
+    input[type="range"]::-webkit-slider-runnable-track {
+      background: linear-gradient(90deg, #ffffff, #ff4d57, #e50914);
+    }
+
+    input[type="checkbox"] {
+      accent-color: #e50914;
+    }
+
+    .switch-button.primary {
+      background: #e50914;
+    }
+
+    .toast {
+      background: #111111;
+      border-color: rgba(229, 9, 20, 0.3);
+    }
+
+    body.monitor-mode .sidebar,
+    body.monitor-mode .scene-panel,
+    body.monitor-mode .main-grid,
+    body.monitor-mode .chart-panel,
+    body.monitor-mode .thermal-console,
+    body.monitor-mode .title p {
+      display: none;
+    }
+
+    body.monitor-mode .shell { grid-template-columns: 1fr; }
+    body.monitor-mode .content { padding: 12px; }
+    body.monitor-mode .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body.monitor-mode .ring-card { min-height: calc(50vh - 42px); }
+    body.monitor-mode .ring { width: min(34vw, 260px); }
+
+    body.low-power-mode::before,
+    body.low-power-mode::after,
+    body.low-power-mode .panel::before {
+      display: none;
+    }
+
+    body.low-power-mode .sidebar,
+    body.low-power-mode .panel,
+    body.low-power-mode .live-strip,
+    body.low-power-mode .alert,
+    body.low-power-mode .segmented,
+    body.low-power-mode .power-segmented,
+    body.low-power-mode .thermal-console,
+    body.low-power-mode .toast,
+    body.low-power-mode .icon-btn,
+    body.low-power-mode .capsule-btn,
+    body.low-power-mode .primary,
+    body.low-power-mode .secondary {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    }
+
+    body.low-power-mode .panel,
+    body.low-power-mode .sidebar {
+      background: rgba(42, 48, 55, 0.86);
+    }
+
+    @keyframes blink {
+      0%, 48% { opacity: 1; }
+      49%, 100% { opacity: 0; }
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: relative;
+        height: auto;
+        display: block;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
       }
+      .sidebar-footer { position: static; margin-top: 12px; }
+      .nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .nav-item { justify-content: center; padding: 0 8px; }
+      .nav-item span:last-child { display: none; }
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .content { padding: 14px 12px 28px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .top-actions { justify-content: flex-start; }
+      .overview-grid { grid-template-columns: 1fr; }
+      .ring-card { grid-template-columns: 132px minmax(0, 1fr); padding: 14px; }
+      .ring { width: 128px; }
+      .ring-inner { width: 86px; }
+      .ring-value { font-size: 29px; }
+      .segmented { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .power-segmented,
+      .power-readout { grid-template-columns: 1fr; }
+      .button-row, .quick-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <div class="app">
-    <header class="panel hero">
-      <div>
-        <h1>NUCtool 风扇控制</h1>
-        <p>按业务场景自动管理风扇转速：减少手动调参，聚焦稳定散热。</p>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="traffic-lights" aria-hidden="true">
+        <span></span><span></span><span></span>
       </div>
-      <div class="status">
-        <span class="badge"><span id="fanStatusDot" class="dot" data-state="idle"></span><span id="fanStatusText">待机</span></span>
-        <span class="badge"><span id="modeStatusDot" class="dot" data-state="idle"></span><span id="runtimeModeText">模式: --</span></span>
+      <div class="brand">
+        <div class="brand-title">NUCtool</div>
+        <div class="brand-sub">Fan Control</div>
       </div>
-    </header>
-
-    <div id="liveStrip" class="live-strip safe"><span id="liveStripText">状态色带：安全，风扇策略处于稳定区间。</span></div>
-
-    <div id="alertStrip" class="alert"></div>
-
-    <section class="kpis">
-      <div class="panel kpi">
-        <div class="kpi-label">CPU 温度</div>
-        <div><span id="cpuTempValue" class="kpi-value">--</span><span class="kpi-unit">°C</span></div>
-      </div>
-      <div class="panel kpi">
-        <div class="kpi-label">GPU 温度</div>
-        <div><span id="gpuTempValue" class="kpi-value">--</span><span class="kpi-unit">°C</span></div>
-      </div>
-      <div class="panel kpi">
-        <div class="kpi-label">CPU 风扇</div>
-        <div><span id="cpuFanValue" class="kpi-value">--</span><span class="kpi-unit">RPM</span></div>
-      </div>
-      <div class="panel kpi">
-        <div class="kpi-label">GPU 风扇</div>
-        <div><span id="gpuFanValue" class="kpi-value">--</span><span class="kpi-unit">RPM</span></div>
-      </div>
-    </section>
-
-    <section class="main">
-      <article class="panel section">
-        <h2>业务场景</h2>
-        <div class="scene-grid">
-          <button class="scene-btn" data-scenario="silent">
-            <span class="scene-title">静音场景</span>
-            <span class="scene-tags">
-              <span class="tag">噪音倾向: 低</span>
-              <span class="tag">散热倾向: 中</span>
-            </span>
-            <div class="scene-desc">夜间办公、会议、轻负载常驻。</div>
-          </button>
-
-          <button class="scene-btn active" data-scenario="office">
-            <span class="scene-title">办公场景</span>
-            <span class="scene-tags">
-              <span class="tag">噪音倾向: 中低</span>
-              <span class="tag">散热倾向: 中高</span>
-            </span>
-            <div class="scene-desc">文档、浏览器、多任务默认推荐。</div>
-          </button>
-
-          <button class="scene-btn" data-scenario="gaming">
-            <span class="scene-title">游戏场景</span>
-            <span class="scene-tags">
-              <span class="tag">噪音倾向: 中高</span>
-              <span class="tag">散热倾向: 高</span>
-            </span>
-            <div class="scene-desc">3A 游戏与持续高 GPU 负载。</div>
-          </button>
-
-          <button class="scene-btn" data-scenario="performance">
-            <span class="scene-title">性能场景</span>
-            <span class="scene-tags">
-              <span class="tag">噪音倾向: 高</span>
-              <span class="tag">散热倾向: 极高</span>
-            </span>
-            <div class="scene-desc">渲染、编译、压力测试等极限负载。</div>
-          </button>
+      <nav class="nav" aria-label="页面导航">
+        <button class="nav-item active" data-target="overviewSection" type="button"><span class="nav-icon">⌘</span><span>概览</span></button>
+        <button class="nav-item" data-target="sceneSection" type="button"><span class="nav-icon">◐</span><span>场景模式</span></button>
+        <button class="nav-item" data-target="controlSection" type="button"><span class="nav-icon">◌</span><span>风扇控制</span></button>
+        <button class="nav-item" data-target="infoSection" type="button"><span class="nav-icon">⌁</span><span>系统信息</span></button>
+        <button class="nav-item" data-target="powerSection" type="button"><span class="nav-icon">CPU</span><span>CPU 功耗</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-pill">
+          <span id="fanStatusDot" class="dot" data-state="idle"></span>
+          <span id="fanStatusText">待机</span>
         </div>
-
-        <div class="action-row">
-          <button id="startStopButton" class="primary"><span id="btnText">启动控制</span></button>
-          <button id="toggleMonitorModeButton" class="secondary">进入大屏监控</button>
-          <button id="saveConfigButton" class="secondary">保存当前场景</button>
-          <button id="loadConfigButton" class="secondary">加载上次场景</button>
+        <div class="status-pill">
+          <span id="modeStatusDot" class="dot" data-state="idle"></span>
+          <span id="runtimeModeText">模式: --</span>
         </div>
+      </div>
+    </aside>
 
-        <div class="hint">点击场景即自动应用。运行中切换场景会即时更新风扇策略。</div>
-      </article>
+    <main class="content">
+      <header class="topbar" id="overviewSection">
+        <div class="title">
+          <h1>风扇概览</h1>
+          <p>温度、转速与控制状态</p>
+        </div>
+        <div class="top-actions">
+          <button class="icon-btn" id="themeToggle" title="切换主题" aria-label="切换主题" type="button"><span id="themeIcon">☀</span></button>
+          <button class="capsule-btn" id="toggleMonitorModeButton" type="button">进入大屏监控</button>
+        </div>
+      </header>
 
-      <article class="panel trend">
-        <h2>实时趋势（最近 60 秒）</h2>
+      <div id="liveStrip" class="live-strip safe">
+        <span id="liveStripText">状态正常，风扇策略处于稳定区间。</span>
+      </div>
+      <div id="alertStrip" class="alert"></div>
+
+      <section class="overview-grid">
+        <article class="panel ring-card kpi-card">
+          <div class="ring" id="cpuRing">
+            <div class="ring-inner">
+              <div>
+                <div id="cpuTempValue" class="ring-value">--</div>
+                <div class="ring-unit">CPU °C</div>
+              </div>
+            </div>
+          </div>
+          <div class="metrics">
+            <div>
+              <div class="metric-label">CPU Fan</div>
+              <div><span id="cpuFanValue" class="metric-value">--</span><span class="metric-unit">RPM</span></div>
+              <div class="kpi-thermal-bar"><div class="kpi-thermal-dot" id="cpuFanDot"></div></div>
+            </div>
+            <div>
+              <div class="metric-label">CPU Temperature</div>
+              <div class="kpi-thermal-bar"><div class="kpi-thermal-dot" id="cpuTempDot"></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel ring-card kpi-card">
+          <div class="ring" id="gpuRing">
+            <div class="ring-inner">
+              <div>
+                <div id="gpuTempValue" class="ring-value">--</div>
+                <div class="ring-unit">GPU °C</div>
+              </div>
+            </div>
+          </div>
+          <div class="metrics">
+            <div>
+              <div class="metric-label">GPU Fan</div>
+              <div><span id="gpuFanValue" class="metric-value">--</span><span class="metric-unit">RPM</span></div>
+              <div class="kpi-thermal-bar"><div class="kpi-thermal-dot" id="gpuFanDot"></div></div>
+            </div>
+            <div>
+              <div class="metric-label">GPU Temperature</div>
+              <div class="kpi-thermal-bar"><div class="kpi-thermal-dot" id="gpuTempDot"></div></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel panel-pad scene-panel" id="sceneSection">
+        <div class="section-label"><h2>场景模式</h2><span id="sceneLabel" class="system-badge">办公</span></div>
+        <div class="segmented">
+          <button class="scene-btn" data-scenario="silent" type="button"><span>🍃</span><span class="scene-title">静音</span><span class="scene-reco" data-suggest="silent">待命</span></button>
+          <button class="scene-btn active" data-scenario="office" type="button"><span>💼</span><span class="scene-title">办公</span><span class="scene-reco" data-suggest="office">待命</span></button>
+          <button class="scene-btn" data-scenario="gaming" type="button"><span>🎮</span><span class="scene-title">游戏</span><span class="scene-reco" data-suggest="gaming">待命</span></button>
+          <button class="scene-btn" data-scenario="performance" type="button"><span>🚀</span><span class="scene-title">性能</span><span class="scene-reco" data-suggest="performance">待命</span></button>
+        </div>
+      </section>
+
+      <div class="main-grid">
+        <article class="panel panel-pad" id="controlSection">
+          <div class="section-label"><h2>风扇控制</h2><span>Control</span></div>
+          <div class="setting-stack">
+            <div class="setting-row">
+              <div>
+                <div class="setting-title">场景曲线</div>
+                <div id="controlModeHint" class="mode-hint">场景已启用，恒速不会生效。</div>
+              </div>
+              <div class="mode-toggle">
+                <button id="enableScenarioButton" class="primary" type="button">场景</button>
+                <button id="enableConstantButton" class="secondary switch-button" type="button">恒速</button>
+              </div>
+            </div>
+            <div>
+              <div class="setting-row">
+                <div>
+                  <div class="setting-title">恒速转速</div>
+                  <div class="setting-sub">仅在恒速开关开启时生效</div>
+                </div>
+                <span id="constantSpeedValue" class="setting-value">60%</span>
+              </div>
+              <div class="slider-row">
+                <input id="constantSpeedRange" type="range" min="0" max="100" step="1" value="60" />
+              </div>
+            </div>
+            <div class="button-row">
+              <button id="startStopButton" class="primary" type="button"><span id="btnText">启动控制</span></button>
+              <button id="autostartButton" class="secondary" type="button">开机自启 关闭</button>
+            </div>
+            <div class="quick-grid">
+              <button id="saveConfigButton" class="secondary" type="button">保存当前场景</button>
+              <button id="loadConfigButton" class="secondary" type="button">加载上次场景</button>
+            </div>
+            <label class="check-row" for="startupTakeoverCheckbox">
+              <input id="startupTakeoverCheckbox" type="checkbox" />
+              <span>开机自启时自动接管风扇</span>
+            </label>
+          </div>
+        </article>
+
+        <article class="panel panel-pad power-panel" id="powerSection">
+          <div class="section-label"><h2>CPU 功耗</h2><span id="cpuPowerModeValue" class="system-badge">平衡</span></div>
+          <div class="power-stack">
+            <div class="power-segmented" role="group" aria-label="CPU 功耗模式">
+              <button class="power-btn" data-power-mode="performance" type="button">
+                <span class="power-title">性能</span>
+                <span class="power-sub">55W / 80W</span>
+              </button>
+              <button class="power-btn active" data-power-mode="balanced" type="button">
+                <span class="power-title">平衡</span>
+                <span class="power-sub">40W / 60W</span>
+              </button>
+              <button class="power-btn" data-power-mode="powersave" type="button">
+                <span class="power-title">省电</span>
+                <span class="power-sub">25W / 38W</span>
+              </button>
+            </div>
+            <div class="power-readout">
+              <div><span>当前 CPU</span><strong id="cpuPowerCurrentValue">--</strong></div>
+              <div><span>长时功耗</span><strong id="cpuPowerPl1Value">40W</strong></div>
+              <div><span>短时睿频</span><strong id="cpuPowerPl2Value">60W</strong></div>
+            </div>
+            <div class="setting-row">
+              <div id="cpuPowerHint" class="mode-hint">日常推荐，明显降低发热与风扇压力。</div>
+              <button id="refreshPowerButton" class="secondary mini-button" type="button">刷新</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel panel-pad" id="infoSection">
+          <div class="section-label"><h2>系统信息</h2><span>Status</span></div>
+          <div class="system-grid">
+            <div class="system-row"><span>系统状态</span><strong><span id="actorStateDot" class="dot" data-state="idle"></span><span id="actorStateValue">--</span></strong></div>
+            <div class="system-row"><span>风扇运行</span><strong><span id="actorRunningValue">--</span></strong></div>
+            <div class="system-row"><span>当前模式</span><strong><span id="actorModeValue">--</span></strong></div>
+            <div class="system-row"><span>控制方式</span><strong><span id="actorControlValue">--</span></strong></div>
+            <div class="system-row"><span>丢样计数</span><strong><span id="actorDroppedValue">0</span></strong></div>
+            <div class="system-row"><span>采样时间</span><strong><span id="actorSampleAtValue">--</span></strong></div>
+          </div>
+        </article>
+      </div>
+
+      <section class="panel panel-pad chart-panel" id="monitorSection">
+        <div class="section-label"><h2>实时监控</h2><span>Trend</span></div>
         <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
-      </article>
-    </section>
+      </section>
+
+      <section class="thermal-console">
+        <div class="thermal-console-header">
+          <span class="console-dot r"></span>
+          <span class="console-dot y"></span>
+          <span class="console-dot g"></span>
+          <span style="margin-left:auto">SYS.LOG</span>
+        </div>
+        <div class="thermal-console-body" id="consoleBody">
+          <div class="log-line"><span class="log-time">--:--:--</span><span class="log-tag">INIT</span><span class="log-msg">NUCtool 监控面板初始化中...</span></div>
+          <div class="log-line"><span class="log-time">--:--:--</span><span class="log-tag">INIT</span><span class="log-msg">等待硬件传感器数据</span></div>
+          <div class="log-line"><span class="log-time">--:--:--</span><span class="log-tag">SYS</span><span class="log-msg">系统就绪<span class="cursor"></span></span></div>
+        </div>
+      </section>
+    </main>
   </div>
 
+  <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+  <script>
+    (function () {
+      var key = 'nuctool.theme';
+      var root = document.documentElement;
+      var button = document.getElementById('themeToggle');
+      var icon = document.getElementById('themeIcon');
+
+      function apply(theme) {
+        root.setAttribute('data-theme', 'dark');
+        if (icon) icon.textContent = '●';
+        try { localStorage.setItem(key, 'dark'); } catch (e) {}
+      }
+
+      apply('dark');
+
+      if (button) {
+        button.addEventListener('click', function () {
+          apply('dark');
+        });
+      }
+    })();
+
+    (function () {
+      var body = document.getElementById('consoleBody');
+      if (!body) return;
+      var maxLines = 42;
+      var previous = { cpu: null, gpu: null, running: null };
+
+      function now() {
+        return new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      }
+
+      function log(tag, msg, cls) {
+        var line = document.createElement('div');
+        line.className = 'log-line';
+        line.innerHTML = '<span class="log-time">' + now() + '</span><span class="log-tag ' + (cls || '') + '">' + tag + '</span><span class="log-msg"></span>';
+        line.querySelector('.log-msg').textContent = msg;
+        body.appendChild(line);
+        while (body.children.length > maxLines) body.removeChild(body.firstChild);
+        body.scrollTop = body.scrollHeight;
+      }
+
+      body.querySelectorAll('.log-time').forEach(function (el) { el.textContent = now(); });
+
+      setInterval(function () {
+        var cpuEl = document.getElementById('cpuTempValue');
+        var gpuEl = document.getElementById('gpuTempValue');
+        var runningEl = document.getElementById('fanStatusText');
+        if (!cpuEl || !gpuEl || cpuEl.textContent === '--') return;
+
+        var cpu = parseInt(cpuEl.textContent, 10) || 0;
+        var gpu = parseInt(gpuEl.textContent, 10) || 0;
+        var running = runningEl ? runningEl.textContent : '';
+
+        if (previous.running !== null && previous.running !== running) {
+          log('CTRL', running, '');
+        }
+        if (previous.cpu !== null && Math.abs(cpu - previous.cpu) >= 5) {
+          log('CPU', previous.cpu + '°C -> ' + cpu + '°C', cpu >= 80 ? 'warn' : '');
+        }
+        if (previous.gpu !== null && Math.abs(gpu - previous.gpu) >= 5) {
+          log('GPU', previous.gpu + '°C -> ' + gpu + '°C', gpu >= 80 ? 'warn' : '');
+        }
+
+        previous.cpu = cpu;
+        previous.gpu = gpu;
+        previous.running = running;
+      }, 2200);
+
+      document.addEventListener('nuctool-metrics', function (event) {
+        var detail = event.detail || {};
+        var cpu = detail.cpuTemp || 0;
+        var gpu = detail.gpuTemp || 0;
+        var cpuFan = detail.cpuFan || 0;
+        var gpuFan = detail.gpuFan || 0;
+        setRing('cpuRing', cpu, cpuFan);
+        setRing('gpuRing', gpu, gpuFan);
+        setBar('cpuTempDot', cpu, 110);
+        setBar('gpuTempDot', gpu, 110);
+        setBar('cpuFanDot', cpuFan, 7000);
+        setBar('gpuFanDot', gpuFan, 7000);
+      });
+
+      function setRing(id, temp, fan) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.style.setProperty('--temp', Math.max(0, Math.min(100, temp / 110 * 100)).toFixed(1));
+        el.style.setProperty('--fan', Math.max(0, Math.min(100, fan / 7000 * 100)).toFixed(1));
+      }
+
+      function setBar(id, value, max) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var pct = Math.max(0, Math.min(100, value / max * 100));
+        el.style.width = pct + '%';
+        el.style.left = pct + '%';
+      }
+    })();
+  </script>
   <script src="./main.js"></script>
 </body>
 </html>

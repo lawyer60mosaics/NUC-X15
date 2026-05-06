@@ -7,6 +7,8 @@ pub struct ControlState {
     pub ema_target_left: f64,
     pub ema_target_right: f64,
     pub active_mode: FanControlMode,
+    pub constant_mode: bool,
+    pub constant_speed: i64,
     pub office_cooldown_ticks: u32,
     pub gaming_hot_ticks: u32,
     pub cpu_hysteresis_anchor_temp: i64,
@@ -18,6 +20,9 @@ pub struct ControlState {
     pub cpu_alert_active: bool,
     pub gpu_alert_active: bool,
     pub force_max_fan: bool,
+    pub invalid_temp_streak: u8,
+    pub released_to_auto_due_invalid: bool,
+    pub wake_cooldown_ticks_remaining: u32,
 }
 
 impl ControlState {
@@ -29,6 +34,8 @@ impl ControlState {
             ema_target_left: 0.0,
             ema_target_right: 0.0,
             active_mode: mode,
+            constant_mode: false,
+            constant_speed: 0,
             office_cooldown_ticks: 0,
             gaming_hot_ticks: 0,
             cpu_hysteresis_anchor_temp: 0,
@@ -40,6 +47,9 @@ impl ControlState {
             cpu_alert_active: false,
             gpu_alert_active: false,
             force_max_fan: false,
+            invalid_temp_streak: 0,
+            released_to_auto_due_invalid: false,
+            wake_cooldown_ticks_remaining: 0,
         }
     }
 }

@@ -11,6 +11,7 @@ use crate::plug::constants::{
     DEFAULT_ZERO_RPM_THRESHOLD, MAX_MONITOR_SAMPLE_INTERVAL_MS, MIN_FAN_SPEED,
     MIN_MONITOR_SAMPLE_INTERVAL_MS,
 };
+use crate::plug::diagnostics::app_log;
 #[cfg(windows)]
 use crate::win_plug::wmi::{get_model, wmi_init, wmi_set};
 #[cfg(unix)]
@@ -18,7 +19,7 @@ use crate::{
     linux_plug::sysfs::{get_kernel_version, get_model_id, get_sys, set_sys},
     plug::config::find_hwmon_with_name,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 #[cfg(windows)]
@@ -73,6 +74,28 @@ lazy_static! {
 // 全局硬件写入互斥锁，防止并发写入 WMI/sysfs 导致的不稳定或错误
 lazy_static! {
     pub static ref HW_ACCESS_LOCK: Mutex<()> = Mutex::new(());
+}
+
+/// 带重试的锁获取：用于关键操作（风扇模式切换、TDP 写入等）
+/// 普通风扇写入使用单次 try_lock（跳过一次写入可接受）
+fn acquire_hw_lock(max_attempts: u32) -> Option<std::sync::MutexGuard<'static, ()>> {
+    for attempt in 0..max_attempts {
+        match HW_ACCESS_LOCK.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(_) => {
+                if attempt == 0 || (attempt + 1) % 5 == 0 {
+                    println!(
+                        "⏳ HW_ACCESS_LOCK 争用 (尝试 {}/{})",
+                        attempt + 1,
+                        max_attempts
+                    );
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+    println!("❌ HW_ACCESS_LOCK 获取失败，已重试 {} 次", max_attempts);
+    None
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -144,6 +167,8 @@ pub struct FanControlPolicy {
     pub constant_speed_enabled: bool,
     #[serde(default = "default_constant_speed")]
     pub constant_speed: i64,
+    #[serde(default)]
+    pub startup_takeover_enabled: bool,
     #[serde(default = "default_cpu_hysteresis_bandwidth")]
     pub cpu_hysteresis_bandwidth: i64,
     #[serde(default = "default_gpu_hysteresis_bandwidth")]
@@ -174,6 +199,7 @@ impl Default for FanControlPolicy {
             zero_rpm_threshold: default_zero_rpm_threshold(),
             constant_speed_enabled: false,
             constant_speed: default_constant_speed(),
+            startup_takeover_enabled: false,
             cpu_hysteresis_bandwidth: default_cpu_hysteresis_bandwidth(),
             gpu_hysteresis_bandwidth: default_gpu_hysteresis_bandwidth(),
             cpu_fan_max_percent: default_cpu_fan_max_percent(),
@@ -412,10 +438,43 @@ pub struct RGB {
     pub(crate) b: i64,
 }
 
-pub struct FanControlState {
-    pub is_running: Arc<Mutex<bool>>,
-    pub active_mode: Arc<Mutex<String>>,
+#[derive(Serialize, Clone, Debug)]
+pub struct FanActorSnapshot {
+    pub running: bool,
+    pub active_mode: String,
+    pub constant_mode: bool,
+    pub constant_speed: i64,
+    pub cpu_temp: Option<i64>,
+    pub gpu_temp: Option<i64>,
+    pub cpu_fan_rpm: Option<i64>,
+    pub gpu_fan_rpm: Option<i64>,
+    pub sampled_at_ms: Option<u128>,
+    pub dropped_samples: u64,
+    pub hung: bool,
+    pub last_heartbeat_ms: Option<u128>,
 }
+
+impl Default for FanActorSnapshot {
+    fn default() -> Self {
+        Self {
+            running: false,
+            active_mode: "office".to_string(),
+            constant_mode: false,
+            constant_speed: 0,
+            cpu_temp: None,
+            gpu_temp: None,
+            cpu_fan_rpm: None,
+            gpu_fan_rpm: None,
+            sampled_at_ms: None,
+            dropped_samples: 0,
+            hung: false,
+            last_heartbeat_ms: None,
+        }
+    }
+}
+
+/// FanControlState 由 Tauri 管理，作为 Actor 系统已初始化的标记
+pub struct FanControlState;
 
 #[cfg(windows)]
 pub struct ApiFan {
@@ -428,6 +487,7 @@ pub struct ApiFan {
     r_fan_r1: &'static str,
     r_fan_r2: &'static str,
 }
+
 
 #[cfg(windows)]
 impl ApiFan {
@@ -503,8 +563,14 @@ impl ApiFan {
             )
     }
     fn _set_fan(&self, l: i64, r: i64) {
-        // 序列化写入，防止并发导致的 WMI 错误
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        // 风扇写入使用 try_lock：在极端并发场景下跳过一次写入影响可控
+        let _guard = match HW_ACCESS_LOCK.try_lock() {
+            Ok(g) => g,
+            Err(_) => {
+                println!("⚠️ HW_ACCESS_LOCK 争用（风扇写入），跳过本次写入 L={} R={}", l, r);
+                return;
+            }
+        };
         // l/r 范围 0-200，用 {:02X} 保证2位十六进制（00-C8），超出时 clamp 保护
         let l = l.clamp(0, 200);
         let r = r.clamp(0, 200);
@@ -533,7 +599,10 @@ impl ApiFan {
         true
     }
     pub fn set_fan_auto(&self) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let Some(_guard) = acquire_hw_lock(10) else {
+            println!("❌ set_fan_auto 失败：无法获取硬件锁");
+            return false;
+        };
         let _ = wmi_set(
             &self.in_cls,
             &self.svc,
@@ -544,7 +613,10 @@ impl ApiFan {
         true
     }
     pub fn set_fan_control(&self) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let Some(_guard) = acquire_hw_lock(10) else {
+            println!("❌ set_fan_control 失败：无法获取硬件锁");
+            return false;
+        };
         if *MODEL_ID == 1 {
             wmi_set(
                 &self.in_cls,
@@ -655,7 +727,10 @@ impl ApiFan {
         )
     }
     pub fn set_tdp(&self, t: TDP) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let Some(_guard) = acquire_hw_lock(5) else {
+            println!("❌ set_tdp 失败：无法获取硬件锁");
+            return false;
+        };
         let _ = wmi_set(
             &self.in_cls,
             &self.svc,
@@ -695,10 +770,67 @@ impl ApiFan {
             &self.method_name,
             format!("0x0000000000{:02X}0786", t.tcc).as_str(),
         );
-        true
+        thread::sleep(Duration::from_millis(500));
+
+        let (read_cpu1, read_cpu2, read_gpu1, read_gpu2, _) = self.get_tdp();
+        let ok = read_cpu1 == t.cpu1
+            && read_cpu2 == t.cpu2
+            && read_gpu1 == t.gpu1
+            && read_gpu2 == t.gpu2;
+        if !ok {
+            println!(
+                "set_tdp verify failed: want cpu={}W/{}W gpu={}W/{}W got cpu={}W/{}W gpu={}W/{}W",
+                t.cpu1, t.cpu2, t.gpu1, t.gpu2, read_cpu1, read_cpu2, read_gpu1, read_gpu2
+            );
+        }
+        ok
+    }
+    pub fn set_cpu_tdp(&self, cpu1: i64, cpu2: i64) -> bool {
+        app_log("hardware", "info", "set_cpu_tdp.start", format!("cpu={}W/{}W", cpu1, cpu2));
+        let Some(_guard) = acquire_hw_lock(5) else {
+            app_log("hardware", "warn", "set_cpu_tdp.lock_failed", format!("cpu={}W/{}W", cpu1, cpu2));
+            println!("set_cpu_tdp failed: hardware lock unavailable");
+            return false;
+        };
+        let cpu1_out = wmi_set(
+            &self.in_cls,
+            &self.svc,
+            &self.obj_path,
+            &self.method_name,
+            format!("0x0000000000{:02X}0783", cpu1).as_str(),
+        );
+        thread::sleep(Duration::from_millis(500));
+        let cpu2_out = wmi_set(
+            &self.in_cls,
+            &self.svc,
+            &self.obj_path,
+            &self.method_name,
+            format!("0x0000000000{:02X}0784", cpu2).as_str(),
+        );
+        thread::sleep(Duration::from_millis(500));
+
+        if cpu1_out < 0 || cpu2_out < 0 {
+            app_log("hardware", "warn", "set_cpu_tdp.wmi_failed", format!("cpu1_out={} cpu2_out={}", cpu1_out, cpu2_out));
+            println!("set_cpu_tdp WMI write failed: cpu1_out={} cpu2_out={}", cpu1_out, cpu2_out);
+            return false;
+        }
+
+        let (read_cpu1, read_cpu2, _, _, _) = self.get_tdp();
+        let ok = read_cpu1 == cpu1 && read_cpu2 == cpu2;
+        app_log("hardware", if ok { "info" } else { "warn" }, "set_cpu_tdp.verify", format!("want={}W/{}W got={}W/{}W ok={}", cpu1, cpu2, read_cpu1, read_cpu2, ok));
+        if !ok {
+            println!(
+                "set_cpu_tdp verify failed: want={}W/{}W got={}W/{}W",
+                cpu1, cpu2, read_cpu1, read_cpu2
+            );
+        }
+        ok
     }
     pub fn set_ac_led_color_y(&self) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let Some(_guard) = acquire_hw_lock(3) else {
+            println!("❌ set_ac_led_color_y 失败：无法获取硬件锁");
+            return false;
+        };
         let _ = wmi_set(
             &self.in_cls,
             &self.svc,
@@ -709,7 +841,10 @@ impl ApiFan {
         true
     }
     pub fn set_ac_led_color_n(&self) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let Some(_guard) = acquire_hw_lock(3) else {
+            println!("❌ set_ac_led_color_n 失败：无法获取硬件锁");
+            return false;
+        };
         let _ = wmi_set(
             &self.in_cls,
             &self.svc,
@@ -721,7 +856,13 @@ impl ApiFan {
     }
     #[allow(dead_code)]
     pub fn set_dc_led_color_y(&self) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let _guard = match HW_ACCESS_LOCK.try_lock() {
+            Ok(g) => g,
+            Err(_) => {
+                println!("⚠️ HW_ACCESS_LOCK 争用，跳过操作");
+                return false;
+            }
+        };
         let _ = wmi_set(
             &self.in_cls,
             &self.svc,
@@ -733,7 +874,13 @@ impl ApiFan {
     }
     #[allow(dead_code)]
     pub fn set_dc_led_color_n(&self) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let _guard = match HW_ACCESS_LOCK.try_lock() {
+            Ok(g) => g,
+            Err(_) => {
+                println!("⚠️ HW_ACCESS_LOCK 争用，跳过操作");
+                return false;
+            }
+        };
         let _ = wmi_set(
             &self.in_cls,
             &self.svc,
@@ -843,11 +990,23 @@ impl ApiFan {
         get_sys(&self.r_fan_r)
     }
     pub fn set_fan_l(&self, n: i64) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let _guard = match HW_ACCESS_LOCK.try_lock() {
+            Ok(g) => g,
+            Err(_) => {
+                println!("⚠️ HW_ACCESS_LOCK 争用（set_fan_l），跳过本次写入 n={}", n);
+                return false;
+            }
+        };
         set_sys(&self.w_fan_l, n)
     }
     pub fn set_fan_r(&self, n: i64) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let _guard = match HW_ACCESS_LOCK.try_lock() {
+            Ok(g) => g,
+            Err(_) => {
+                println!("⚠️ HW_ACCESS_LOCK 争用（set_fan_r），跳过本次写入 n={}", n);
+                return false;
+            }
+        };
         set_sys(&self.w_fan_r, n)
     }
     /// MAX speed 255
@@ -855,11 +1014,17 @@ impl ApiFan {
         self.set_fan_l(l) && self.set_fan_r(r)
     }
     pub fn set_fan_auto(&self) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let Some(_guard) = acquire_hw_lock(10) else {
+            println!("❌ set_fan_auto 失败：无法获取硬件锁");
+            return false;
+        };
         set_sys(&self.mode, 2)
     }
     pub fn set_fan_control(&self) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
+        let Some(_guard) = acquire_hw_lock(10) else {
+            println!("❌ set_fan_control 失败：无法获取硬件锁");
+            return false;
+        };
         set_sys(&self.mode, 1)
     }
     pub fn get_fan_mode(&self) -> i64 {
@@ -904,10 +1069,39 @@ impl ApiFan {
         )
     }
     pub fn set_tdp(&self, t: TDP) -> bool {
-        let _guard = HW_ACCESS_LOCK.lock().unwrap();
-        set_sys(&self.cpu_pl1, t.cpu1 * 1000)
+        let Some(_guard) = acquire_hw_lock(5) else {
+            println!("❌ set_tdp 失败：无法获取硬件锁");
+            return false;
+        };
+        let writes_ok = set_sys(&self.cpu_pl1, t.cpu1 * 1000)
             && set_sys(&self.cpu_pl2, t.cpu2 * 1000)
             && set_sys(&self.gpu_pl1, t.gpu1 * 1000)
-            && set_sys(&self.gpu_pl2, t.gpu2 * 1000)
+            && set_sys(&self.gpu_pl2, t.gpu2 * 1000);
+        if !writes_ok {
+            return false;
+        }
+        let (read_cpu1, read_cpu2, read_gpu1, read_gpu2, _) = self.get_tdp();
+        read_cpu1 == t.cpu1
+            && read_cpu2 == t.cpu2
+            && read_gpu1 == t.gpu1
+            && read_gpu2 == t.gpu2
+    }
+    pub fn set_cpu_tdp(&self, cpu1: i64, cpu2: i64) -> bool {
+        app_log("hardware", "info", "set_cpu_tdp.start", format!("platform=linux cpu={}W/{}W", cpu1, cpu2));
+        let Some(_guard) = acquire_hw_lock(5) else {
+            app_log("hardware", "warn", "set_cpu_tdp.lock_failed", format!("platform=linux cpu={}W/{}W", cpu1, cpu2));
+            println!("set_cpu_tdp failed: hardware lock unavailable");
+            return false;
+        };
+        let writes_ok = set_sys(&self.cpu_pl1, cpu1 * 1000)
+            && set_sys(&self.cpu_pl2, cpu2 * 1000);
+        if !writes_ok {
+            app_log("hardware", "warn", "set_cpu_tdp.sysfs_failed", format!("cpu={}W/{}W", cpu1, cpu2));
+            return false;
+        }
+        let (read_cpu1, read_cpu2, _, _, _) = self.get_tdp();
+        let ok = read_cpu1 == cpu1 && read_cpu2 == cpu2;
+        app_log("hardware", if ok { "info" } else { "warn" }, "set_cpu_tdp.verify", format!("platform=linux want={}W/{}W got={}W/{}W ok={}", cpu1, cpu2, read_cpu1, read_cpu2, ok));
+        ok
     }
 }

@@ -8,3 +8,4 @@ pub mod models;
 pub mod fan_curve;
 pub mod ramp;
 pub mod mode_profiles;
+pub mod diagnostics;

@@ -11,6 +11,7 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:default",
     "shell:allow-execute",
     "shell:allow-open",
     "fs:default",

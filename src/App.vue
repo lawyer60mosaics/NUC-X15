@@ -1,344 +1,199 @@
 <template>
-  <div class="app-container" :class="{ 'dark-mode': isDarkMode }">
-    <!-- 顶部导航栏 -->
-    <el-card class="navbar" shadow="never">
-      <div class="navbar-content">
-        <div class="app-title">
-          <el-icon :size="28" class="title-icon"><Promotion /></el-icon>
-          <div class="title-text">
-            <h1>NUCtool 智能风扇控制</h1>
-            <p>Professional Fan Management System</p>
-          </div>
+  <div class="app-shell">
+    <div class="ambient ambient-a"></div>
+    <div class="ambient ambient-b"></div>
+
+    <el-card class="surface hero-panel" shadow="never">
+      <div class="hero-copy">
+        <p class="eyebrow">NUCTOOL · 风控矩阵</p>
+        <h1>苏州式留白，安静地组织状态</h1>
+        <p class="hero-desc">
+          以青灰、留白和细线条重建信息层级，把趋势放在主位，把控制收回到辅助位。
+        </p>
+      </div>
+
+      <div class="hero-aside">
+        <div class="hero-statusline">
+          <span class="status-pill" :class="{ 'is-live': isRunning }">
+            {{ isRunning ? '运行中' : '待机' }}
+          </span>
+          <span>{{ activeScenario.label }}</span>
+          <span>·</span>
+          <span>{{ sceneModeEnabled ? '场景控制' : '恒速控制' }}</span>
         </div>
-        <div class="status-bar">
-          <el-tag :type="fanStatus.type" effect="dark" :class="{ 'pulse-tag': isRunning }">
-            <el-icon v-if="isRunning" class="spin-icon"><Loading /></el-icon>
-            {{ fanStatus.text }}
-          </el-tag>
-          <el-tag :type="configStatus.type" effect="dark">
+
+        <div class="hero-meta">
+          <div>CPU {{ metrics.cpuTemp ?? '--' }}°</div>
+          <div>GPU {{ metrics.gpuTemp ?? '--' }}°</div>
+          <div>CPU {{ metrics.cpuFan ?? '--' }} RPM</div>
+          <div>GPU {{ metrics.gpuFan ?? '--' }} RPM</div>
+        </div>
+
+        <div class="hero-actions">
+          <div class="autostart-line">
+            <span>开机自启</span>
+            <el-switch v-model="autostartEnabled" @change="toggleAutostart" inline-prompt />
+          </div>
+          <el-tag effect="plain" class="status-tag" :type="configStatus.type">
             {{ configStatus.text }}
           </el-tag>
-          <div class="autostart-toggle">
-            <span class="autostart-label">开机自启</span>
-            <el-switch
-              v-model="autostartEnabled"
-              @change="toggleAutostart"
-              inline-prompt
-              active-text="开"
-              inactive-text="关"
-            />
-          </div>
-          <el-tooltip content="切换深色模式" placement="bottom">
-            <el-button :icon="isDarkMode ? Sunny : Moon" circle size="small" @click="isDarkMode = !isDarkMode" />
-          </el-tooltip>
         </div>
       </div>
     </el-card>
 
-    <!-- 过温警告横幅 -->
     <el-alert
       v-if="isOverheat"
-      title="⚠️ 过温警告：CPU或GPU温度超过85°C，风扇已加速散热"
+      title="过温警告：CPU 或 GPU 温度超过 85°C，系统会优先散热。"
       type="error"
-      effect="dark"
       :closable="false"
-      class="overheat-alert"
+      class="soft-alert"
       show-icon
     />
 
-    <!-- 监控指标 -->
-    <el-row :gutter="12" class="metrics-grid">
-      <el-col :span="6">
-        <el-card shadow="hover" class="metric-card">
-          <div class="metric-header">
-            <el-icon :size="18"><Sunny /></el-icon>
-            <span class="metric-label">CPU 温度</span>
-            <div class="metric-badge" :class="getTempLevel(metrics.cpuTemp)">
-              {{ getTempLevelText(metrics.cpuTemp) }}
+    <div class="summary-strip surface">
+      <div v-for="item in monitorStrip" :key="item.label" class="summary-item">
+        <span class="summary-label">{{ item.label }}</span>
+        <strong class="summary-value">{{ item.value }}</strong>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <aside class="left-column">
+        <el-card class="surface module-card" shadow="never">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">场景</p>
+              <h2>静音，办公，游戏，性能</h2>
+            </div>
+            <div class="section-note">
+              {{ suggestedIntensity !== null ? `建议 ${suggestedIntensity}%` : '暂无建议' }}
             </div>
           </div>
-          <div class="metric-value-container">
-            <span class="metric-value" :style="{ color: getTempColor(metrics.cpuTemp) }">
-              {{ metrics.cpuTemp || '--' }}
-            </span>
-            <span class="metric-unit">°C</span>
-          </div>
-          <el-progress
-            :percentage="metrics.cpuTemp ? Math.min(metrics.cpuTemp, 100) : 0"
-            :color="getTempColor(metrics.cpuTemp)"
-            :stroke-width="4"
-            :show-text="false"
-            class="metric-progress"
-          />
-          <div class="metric-trend">
-            <span v-for="(v, i) in cpuTempHistory" :key="i" class="spark-bar"
-              :style="{ height: (v/100*20)+'px', background: getTempColor(v) }"></span>
-          </div>
-        </el-card>
-      </el-col>
 
-      <el-col :span="6">
-        <el-card shadow="hover" class="metric-card">
-          <div class="metric-header">
-            <el-icon :size="18"><Cpu /></el-icon>
-            <span class="metric-label">GPU 温度</span>
-            <div class="metric-badge" :class="getTempLevel(metrics.gpuTemp)">
-              {{ getTempLevelText(metrics.gpuTemp) }}
-            </div>
-          </div>
-          <div class="metric-value-container">
-            <span class="metric-value" :style="{ color: getTempColor(metrics.gpuTemp) }">
-              {{ metrics.gpuTemp || '--' }}
-            </span>
-            <span class="metric-unit">°C</span>
-          </div>
-          <el-progress
-            :percentage="metrics.gpuTemp ? Math.min(metrics.gpuTemp, 100) : 0"
-            :color="getTempColor(metrics.gpuTemp)"
-            :stroke-width="4"
-            :show-text="false"
-            class="metric-progress"
-          />
-          <div class="metric-trend">
-            <span v-for="(v, i) in gpuTempHistory" :key="i" class="spark-bar"
-              :style="{ height: (v/100*20)+'px', background: getTempColor(v) }"></span>
-          </div>
-        </el-card>
-      </el-col>
-
-      <el-col :span="6">
-        <el-card shadow="hover" class="metric-card">
-          <div class="metric-header">
-            <el-icon :size="18"><WindPower /></el-icon>
-            <span class="metric-label">CPU 风扇</span>
-            <div class="metric-badge badge-blue">{{ metrics.cpuFan ? '运转中' : '待机' }}</div>
-          </div>
-          <div class="metric-value-container">
-            <span class="metric-value fan-value">{{ metrics.cpuFan || '--' }}</span>
-            <span class="metric-unit">RPM</span>
-          </div>
-          <el-progress
-            :percentage="metrics.cpuFan ? Math.min(Math.round(metrics.cpuFan / 60), 100) : 0"
-            color="#409EFF"
-            :stroke-width="4"
-            :show-text="false"
-            class="metric-progress"
-          />
-          <div class="metric-trend">
-            <span v-for="(v, i) in cpuFanHistory" :key="i" class="spark-bar"
-              :style="{ height: (v/6000*20)+'px', background: '#409EFF' }"></span>
-          </div>
-        </el-card>
-      </el-col>
-
-      <el-col :span="6">
-        <el-card shadow="hover" class="metric-card">
-          <div class="metric-header">
-            <el-icon :size="18"><CircleCheck /></el-icon>
-            <span class="metric-label">GPU 风扇</span>
-            <div class="metric-badge badge-green">{{ metrics.gpuFan ? '运转中' : '待机' }}</div>
-          </div>
-          <div class="metric-value-container">
-            <span class="metric-value fan-value">{{ metrics.gpuFan || '--' }}</span>
-            <span class="metric-unit">RPM</span>
-          </div>
-          <el-progress
-            :percentage="metrics.gpuFan ? Math.min(Math.round(metrics.gpuFan / 60), 100) : 0"
-            color="#67C23A"
-            :stroke-width="4"
-            :show-text="false"
-            class="metric-progress"
-          />
-          <div class="metric-trend">
-            <span v-for="(v, i) in gpuFanHistory" :key="i" class="spark-bar"
-              :style="{ height: (v/6000*20)+'px', background: '#67C23A' }"></span>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 快捷调节：模式 + 强度 + 应用 -->
-    <el-card class="quick-card" shadow="hover">
-      <div class="quick-row">
-        <div class="quick-block">
-          <div class="quick-label">
-            <el-icon><Setting /></el-icon>
-            <span>运行模式</span>
-          </div>
-          <el-radio-group v-model="mode" size="default">
-            <el-radio-button
+          <div class="scene-pills">
+            <button
               v-for="opt in modeOptions"
               :key="opt.value"
-              :label="opt.value"
+              class="scene-pill"
+              :class="{ active: mode === opt.value, muted: !sceneModeEnabled }"
+              :disabled="!sceneModeEnabled"
+              @click="mode = opt.value"
             >
-              <el-icon style="margin-right:4px">
-                <component :is="opt.icon" />
-              </el-icon>
-              {{ opt.label }}
-            </el-radio-button>
-          </el-radio-group>
-        </div>
-        <div class="quick-block stretch">
-          <div class="quick-label">
-            <span>
-              <el-icon><Filter /></el-icon>
-              强度调节
-            </span>
-            <el-tag size="small" effect="plain" type="primary">{{ intensity }}%</el-tag>
+              <span>{{ opt.label }}</span>
+              <small>{{ opt.detail }}</small>
+            </button>
           </div>
-          <el-slider v-model="intensity" :min="0" :max="100" :step="1"
-            :marks="{ 0: '静', 50: '均衡', 100: '性能' }" />
-          <div class="suggest-box" v-if="suggestedIntensity !== null">
-            建议: <strong>{{ suggestedIntensity }}%</strong>
-            <el-button size="small" type="warning" @click="applySuggested" style="margin-left:8px">应用建议</el-button>
+
+          <div class="scenario-footnote">
+            {{ activeScenario.tags.join(' · ') }}
           </div>
-        </div>
-        <div class="quick-block stretch">
-          <div class="quick-label">
-            <span>
-              <el-icon><WindPower /></el-icon>
-              恒速设置
-            </span>
-            <el-tag size="small" effect="plain" type="success">{{ constantFanSpeed }}%</el-tag>
+        </el-card>
+
+        <el-card class="surface module-card" shadow="never">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">控制</p>
+              <h2>{{ sliderTitle }}</h2>
+            </div>
+            <div class="mode-switch">
+              <button class="mode-chip" :class="{ active: sceneModeEnabled }" @click="enableSceneMode">场景</button>
+              <button class="mode-chip" :class="{ active: constantSpeedEnabled }" @click="enableConstantMode">恒速</button>
+            </div>
           </div>
-          <el-switch
-            v-model="constantSpeedEnabled"
-            inline-prompt
-            active-text="开"
-            inactive-text="关"
-          />
-          <el-slider
-            v-model="constantFanSpeed"
-            :min="0"
-            :max="100"
-            :step="1"
-            :disabled="!constantSpeedEnabled"
-            :marks="{ 20: '静音', 50: '常用', 80: '高转' }"
-          />
-          <div class="suggest-box" v-if="constantSpeedEnabled">
-            启用后风扇将固定在 <strong>{{ constantFanSpeed }}%</strong> 转速执行
-          </div>
-        </div>
-        <div class="quick-actions">
-          <el-button type="primary" @click="applyQuickMode" :loading="isLoading" :icon="Lightning">
-            快速应用
-          </el-button>
-          <el-button type="success" @click="applyCustomCurve" :loading="isLoading" :icon="Edit">
-            自定义曲线
-          </el-button>
-          <el-divider direction="vertical" />
-          <el-tooltip :content="advancedVisible ? '收起高级视图' : '展开高级视图'" placement="top">
-            <el-switch
-              v-model="advancedVisible"
-              inline-prompt
-              active-text="高级"
-              inactive-text="简洁"
+
+          <p class="section-caption">{{ sliderHint }}</p>
+
+          <div class="slider-frame">
+            <el-slider
+              v-if="sceneModeEnabled"
+              v-model="intensity"
+              :min="0"
+              :max="100"
+              :step="1"
+              :disabled="!sceneModeEnabled"
+              :marks="{ 0: '静', 50: '均衡', 100: '性能' }"
+              class="slim-slider"
             />
-          </el-tooltip>
-        </div>
-      </div>
-    </el-card>
+            <el-slider
+              v-else
+              v-model="constantFanSpeed"
+              :min="0"
+              :max="100"
+              :step="1"
+              :disabled="!constantSpeedEnabled"
+              :marks="{ 20: '静音', 50: '常用', 80: '高转' }"
+              class="slim-slider"
+            />
+          </div>
 
-    <!-- 图表区域（高级模式可见） -->
-    <el-row v-show="advancedVisible" :gutter="12" class="charts-container">
-      <el-col :span="12">
-        <el-card shadow="hover" class="chart-card">
-          <template #header>
-            <div class="chart-header">
-              <el-icon :size="18" color="#409EFF"><TrendCharts /></el-icon>
-              <div>
-                <span class="chart-title">CPU 风扇曲线</span>
-                <p class="chart-subtitle">拖动节点调整温度-转速映射</p>
-              </div>
-              <el-tag size="small" type="primary" style="margin-left:auto">
-                当前 {{ metrics.cpuTemp || '--' }}°C
-              </el-tag>
-            </div>
-          </template>
-          <div class="chart-wrapper">
-            <canvas ref="leftFanChart"></canvas>
+          <div class="slider-footline">
+            <span v-if="sceneModeEnabled">场景强度 {{ intensity }}%</span>
+            <span v-else>固定转速 {{ constantFanSpeed }}%</span>
           </div>
         </el-card>
 
-        <el-card shadow="hover" class="chart-card" style="margin-top: 12px;">
-          <template #header>
-            <div class="chart-header">
-              <el-icon :size="18" color="#67C23A"><TrendCharts /></el-icon>
-              <div>
-                <span class="chart-title">GPU 风扇曲线</span>
-                <p class="chart-subtitle">拖动节点调整温度-转速映射</p>
-              </div>
-              <el-tag size="small" type="success" style="margin-left:auto">
-                当前 {{ metrics.gpuTemp || '--' }}°C
-              </el-tag>
+        <el-card class="surface module-card" shadow="never">
+          <div class="section-head compact">
+            <div>
+              <p class="section-kicker">操作</p>
+              <h2>控制、保存、加载</h2>
             </div>
-          </template>
-          <div class="chart-wrapper">
-            <canvas ref="rightFanChart"></canvas>
+          </div>
+
+          <div class="action-grid">
+            <el-button class="action-main" :type="isRunning ? 'danger' : 'primary'" @click="toggleFanControl" :loading="isLoading">
+              {{ isRunning ? '停止控制' : '启动控制' }}
+            </el-button>
+            <el-button class="action-soft" @click="applyQuickMode" :loading="isLoading">快速应用</el-button>
+            <el-button class="action-soft" @click="applyCustomCurve" :loading="isLoading">自定义曲线</el-button>
+            <el-button class="action-soft" @click="loadConfig" :loading="isLoading">加载配置</el-button>
+            <el-button class="action-soft" @click="saveConfig" :loading="isLoading">保存配置</el-button>
+          </div>
+
+          <div class="suggest-box" v-if="suggestedIntensity !== null">
+            建议值来自最近使用记录，当前可直接应用为 <strong>{{ suggestedIntensity }}%</strong>。
+            <el-button size="small" class="suggest-button" @click="applySuggested">应用建议</el-button>
           </div>
         </el-card>
-      </el-col>
+      </aside>
 
-      <el-col :span="12">
-        <el-card shadow="hover" class="chart-card">
+      <section class="right-column">
+        <el-card class="surface chart-card chart-primary" shadow="never">
           <template #header>
             <div class="chart-header">
-              <el-icon :size="18" color="#E6A23C"><DataLine /></el-icon>
               <div>
-                <span class="chart-title">风扇转速监控</span>
-                <p class="chart-subtitle">实时转速变化（最近60秒）</p>
+                <p class="section-kicker">趋势</p>
+                <span class="chart-title">温度曲线</span>
               </div>
-              <div style="margin-left:auto;display:flex;gap:6px">
-                <el-tag size="small" type="primary">CPU {{ metrics.cpuFan || 0 }} RPM</el-tag>
-                <el-tag size="small" type="success">GPU {{ metrics.gpuFan || 0 }} RPM</el-tag>
+              <div class="chart-meta">
+                <el-tag effect="plain">CPU {{ metrics.cpuTemp || '--' }}°C</el-tag>
+                <el-tag effect="plain">GPU {{ metrics.gpuTemp || '--' }}°C</el-tag>
               </div>
             </div>
           </template>
-          <div class="chart-wrapper">
-            <canvas ref="speedChart"></canvas>
-          </div>
-        </el-card>
-
-        <el-card shadow="hover" class="chart-card" style="margin-top: 12px;">
-          <template #header>
-            <div class="chart-header">
-              <el-icon :size="18" color="#F56C6C"><DataLine /></el-icon>
-              <div>
-                <span class="chart-title">温度历史</span>
-                <p class="chart-subtitle">实时温度变化（最近60秒）</p>
-              </div>
-              <div style="margin-left:auto;display:flex;gap:6px">
-                <el-tag size="small" type="danger">CPU {{ metrics.cpuTemp || 0 }}°C</el-tag>
-                <el-tag size="small" type="warning">GPU {{ metrics.gpuTemp || 0 }}°C</el-tag>
-              </div>
-            </div>
-          </template>
-          <div class="chart-wrapper">
+          <div class="chart-wrapper chart-focus-wrapper">
             <canvas ref="tempChart"></canvas>
           </div>
         </el-card>
-      </el-col>
-    </el-row>
 
-    <!-- 控制按钮 -->
-    <div class="controls">
-      <el-button
-        :type="isRunning ? 'danger' : 'primary'"
-        size="large"
-        @click="toggleFanControl"
-        :loading="isLoading"
-        class="main-control-btn"
-      >
-        <el-icon><VideoPlay v-if="!isRunning" /><VideoPause v-else /></el-icon>
-        {{ isRunning ? '停止控制' : '启动控制' }}
-      </el-button>
-      <el-divider direction="vertical" style="height:36px" />
-      <el-button size="large" @click="loadConfig" :loading="isLoading" :icon="Download">
-        加载配置
-      </el-button>
-      <el-button size="large" @click="saveConfig" :loading="isLoading" :icon="Upload">
-        保存配置
-      </el-button>
+        <el-card class="surface chart-card chart-secondary" shadow="never">
+          <template #header>
+            <div class="chart-header">
+              <div>
+                <p class="section-kicker">辅助</p>
+                <span class="chart-title">风扇转速</span>
+              </div>
+              <div class="chart-meta">
+                <el-tag effect="plain">CPU {{ metrics.cpuFan || 0 }} RPM</el-tag>
+                <el-tag effect="plain">GPU {{ metrics.gpuFan || 0 }} RPM</el-tag>
+              </div>
+            </div>
+          </template>
+          <div class="chart-wrapper chart-secondary-wrapper">
+            <canvas ref="speedChart"></canvas>
+          </div>
+        </el-card>
+      </section>
     </div>
   </div>
 </template>
@@ -382,11 +237,41 @@ const isOverheat = computed(() => metrics.cpuTemp > 85 || metrics.gpuTemp > 85)
 const isTauriReady = () => !!(window.__TAURI__ && window.__TAURI__.core)
 
 // 快捷模式
-const mode = ref('auto')
+const mode = ref('office')
 const intensity = ref(50)
-const constantSpeedEnabled = ref(false)
+const controlMode = ref('scene')
+const sceneModeEnabled = computed(() => controlMode.value === 'scene')
+const constantSpeedEnabled = computed(() => controlMode.value === 'constant')
 const constantFanSpeed = ref(60)
 const usageHistory = ref([])
+
+const modeOptions = Object.values(SCENARIOS).map((scenario) => ({
+  value: scenario.mode,
+  label: scenario.label,
+  detail: scenario.tags[0].replace('噪音倾向: ', ''),
+}))
+
+const activeScenario = computed(() => SCENARIOS[mode.value] ?? SCENARIOS.office)
+const sliderTitle = computed(() => (sceneModeEnabled.value ? '场景强度' : '恒速转速'))
+const sliderHint = computed(() => (
+  sceneModeEnabled.value
+    ? '细线滑条只改变场景的强弱，不打断整体秩序。'
+    : '固定风扇节奏，适合保持稳定而安静的运行状态。'
+))
+const monitorStrip = computed(() => ([
+  { label: 'CPU', value: `${metrics.cpuTemp ?? '--'}°` },
+  { label: 'GPU', value: `${metrics.gpuTemp ?? '--'}°` },
+  { label: 'CPU 风扇', value: `${metrics.cpuFan ?? '--'} RPM` },
+  { label: 'GPU 风扇', value: `${metrics.gpuFan ?? '--'} RPM` },
+]))
+
+const enableSceneMode = () => {
+  controlMode.value = 'scene'
+}
+
+const enableConstantMode = () => {
+  controlMode.value = 'constant'
+}
 
 // Load/save usage history from localStorage
 const USAGE_KEY = 'nuctool_quick_usage'
@@ -436,18 +321,33 @@ const applyQuickMode = async () => {
   isLoading.value = true
   try {
     const k = intensity.value / 100
+    const leftFanCurve = sceneModeEnabled.value
+      ? buildCurveFromMode(leftFanChartInstance.data.labels, mode.value, k)
+      : leftFanChartInstance.data.labels.map((temp, i) => ({
+        temperature: temp,
+        speed: leftFanChartInstance.data.datasets[0].data[i]
+      }))
+    const rightFanCurve = sceneModeEnabled.value
+      ? buildCurveFromMode(rightFanChartInstance.data.labels, mode.value, k)
+      : rightFanChartInstance.data.labels.map((temp, i) => ({
+        temperature: temp,
+        speed: rightFanChartInstance.data.datasets[0].data[i]
+      }))
+
     const fanData = {
-      left_fan: buildCurveFromMode(leftFanChartInstance.data.labels, mode.value, k),
-      right_fan: buildCurveFromMode(rightFanChartInstance.data.labels, mode.value, k),
+      left_fan: leftFanCurve,
+      right_fan: rightFanCurve,
       control: {
         constant_speed_enabled: constantSpeedEnabled.value,
         constant_speed: constantFanSpeed.value,
       }
     }
-    leftFanChartInstance.data.datasets[0].data  = fanData.left_fan.map(p => p.speed)
-    rightFanChartInstance.data.datasets[0].data = fanData.right_fan.map(p => p.speed)
-    leftFanChartInstance.update()
-    rightFanChartInstance.update()
+    if (sceneModeEnabled.value) {
+      leftFanChartInstance.data.datasets[0].data  = fanData.left_fan.map(p => p.speed)
+      rightFanChartInstance.data.datasets[0].data = fanData.right_fan.map(p => p.speed)
+      leftFanChartInstance.update()
+      rightFanChartInstance.update()
+    }
     if (isRunning.value) {
       await window.__TAURI__.core.invoke('stop_fan_control')
       await new Promise(resolve => setTimeout(resolve, 500))
@@ -455,7 +355,7 @@ const applyQuickMode = async () => {
     await window.__TAURI__.core.invoke('start_fan_control', { fanData })
     isRunning.value = true
     fanStatus.type = 'success'; fanStatus.text = '风扇运行中'
-    ElMessage.success('已应用快捷模式')
+    ElMessage.success(sceneModeEnabled.value ? '已应用场景模式' : '已应用恒速模式')
 
     // 记录使用历史（异步，不阻塞 UI）
     try {
@@ -778,118 +678,516 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* LoL 2025 inspired theme - cinematic dark gradients, glass panels, neon rim lighting */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
-:root{
-  --bg-1: linear-gradient(180deg, #05060a 0%, #0b1020 60%);
-  --panel-bg: rgba(255,255,255,0.03);
-  --glass-border: rgba(255,255,255,0.06);
-  --accent-1: #8b5cf6; /* purple */
-  --accent-2: #00e5ff; /* cyan */
-  --accent-3: #ffb86b; /* gold */
-  --muted: #b8c5d6;
-  --text-main: #f0f5ff;
-  --text-secondary: #d0dbe8;
-  --soft-shadow: 0 6px 24px rgba(2,6,23,0.6);
-}
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600&family=Noto+Serif+SC:wght@400;500&display=swap');
 
-.app-container {
-  padding: 20px;
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
-  background: var(--bg-1);
+.app-shell {
+  position: relative;
   min-height: 100vh;
-  color: var(--text-main);
-  -webkit-font-smoothing:antialiased;
-  transition: background 0.35s ease, color 0.35s ease;
+  padding: 22px;
+  overflow: hidden;
+  color: #2f3a37;
+  font-family: 'Noto Sans SC', sans-serif;
+  background: linear-gradient(180deg, #eef2f0 0%, #e3e8e6 100%);
 }
 
-/* Glass card base */
-.el-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.015));
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  box-shadow: var(--soft-shadow);
-  backdrop-filter: blur(8px) saturate(110%);
+.app-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  background-image:
+    linear-gradient(rgba(47, 58, 55, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47, 58, 55, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(circle at center, black 40%, transparent 88%);
 }
 
-/* navbar */
-.navbar { margin-bottom: 18px; padding: 10px 12px; }
-.navbar-content { display:flex; align-items:center; gap:16px; justify-content:space-between; }
-.title-text h1{ font-size:20px; margin:0; color:var(--text-main); letter-spacing:0.6px; font-weight:700 }
-.title-text p{ margin:2px 0 0 0; color:var(--muted); font-size:12px }
-.title-icon { width:40px; height:40px; display:flex; align-items:center; justify-content:center; border-radius:8px; background:linear-gradient(120deg,var(--accent-1), var(--accent-2)); box-shadow:0 6px 18px rgba(138,92,246,0.14); }
+.ambient {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(32px);
+  pointer-events: none;
+}
 
-.status-bar { display:flex; gap:10px; align-items:center }
-.el-tag { background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border: 1px solid rgba(255,255,255,0.03); color:var(--text-main); }
-.pulse-tag{ animation: glow 1.6s ease-in-out infinite; border-radius:10px }
-@keyframes glow{ 0%{ box-shadow:0 0 0 0 rgba(139,92,246,0.15) } 50%{ box-shadow:0 0 28px 6px rgba(0,229,255,0.04) } 100%{ box-shadow:0 0 0 0 rgba(139,92,246,0.06) } }
+.ambient-a {
+  top: -72px;
+  right: 8%;
+  width: 300px;
+  height: 300px;
+  background: rgba(111, 143, 136, 0.18);
+}
 
-/* overheat banner - sharper and prominent */
-.overheat-alert{ background: linear-gradient(90deg, rgba(245,92,92,0.12), rgba(255,140,92,0.06)); border-left:4px solid #ff6b6b; color:#fff; margin-bottom:14px }
+.ambient-b {
+  left: -100px;
+  bottom: 6%;
+  width: 280px;
+  height: 280px;
+  background: rgba(207, 222, 216, 0.8);
+}
 
-/* metrics grid */
-.metrics-grid{ margin-bottom:14px }
-.metric-card{ padding:12px }
-.metric-header{ display:flex; align-items:center; gap:8px; margin-bottom:8px; color:var(--text-secondary) }
-.metric-label{ font-size:11px; font-weight:600; color:var(--text-secondary); text-transform:none }
-.metric-value{ font-size:32px; font-weight:800; color:var(--text-main); transition: color 0.45s }
-.metric-unit{ color:var(--muted); font-size:13px }
-.metric-badge{ font-weight:700; font-size:11px; padding:4px 8px; border-radius:999px }
-.badge-green{ background: linear-gradient(90deg,#0f5132 0%, #154d3f 100%); color:#c7ffd8 }
-.badge-blue{ background: linear-gradient(90deg,#062f4f 0%, #083b67 100%); color:#cfeaff }
+.surface {
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(47, 58, 55, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.64);
+  backdrop-filter: blur(12px) saturate(110%);
+  box-shadow: 0 16px 40px rgba(53, 67, 61, 0.08);
+}
 
-/* progress visual tweaks */
-.metric-progress .el-progress-bar__outer{ background: rgba(255,255,255,0.02); border-radius:10px }
-.metric-progress .el-progress__inner{ border-radius:10px }
+.hero-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 20px 22px;
+  margin: 0 auto 14px;
+}
 
-/* spark bars - neon accent */
-.metric-trend{ display:flex; gap:4px; height:24px }
-.spark-bar{ border-radius:2px; transition:height 0.35s ease, background 0.35s ease }
+.hero-copy {
+  flex: 1 1 54%;
+}
 
-/* quick card */
-.quick-card{ padding:12px; margin-bottom:14px }
-.quick-row{ display:flex; gap:14px; align-items:center; flex-wrap:wrap }
-.quick-block{ min-width:220px }
-.quick-label{ display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--text-secondary) }
-.el-button--primary{ background: linear-gradient(90deg, var(--accent-1), var(--accent-2)); border:none; box-shadow: 0 8px 28px rgba(139,92,246,0.14); }
-.el-button--success{ background: linear-gradient(90deg,#2ecc71, #66d08f); border:none }
-.el-button{ color:var(--text-main); font-weight:700 }
+.eyebrow,
+.section-kicker {
+  margin: 0 0 8px;
+  color: #6f8f88;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+}
 
-/* charts */
-.chart-card{ height: calc(50vh - 110px); min-height:240px; padding:8px }
-.chart-header{ display:flex; align-items:center; gap:10px }
-.chart-title{ color:var(--text-main); font-weight:700 }
-.chart-subtitle{ color:var(--text-secondary); font-size:12px }
-.chart-wrapper{ height:100%; position:relative; }
-.chart-wrapper canvas{ width:100% !important; height:100% !important }
+.hero-copy h1,
+.section-head h2 {
+  margin: 0;
+  font-family: 'Noto Serif SC', serif;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #2f3a37;
+}
 
-/* controls */
-.controls{ display:flex; justify-content:center; gap:12px; align-items:center; padding-top:8px }
-.main-control-btn{ min-width:160px; border-radius:12px; padding:12px 18px }
-.el-divider--vertical{ height:42px }
+.hero-copy h1 {
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1.08;
+  max-width: 12ch;
+}
 
-/* dark-mode tweaks */
-.dark-mode{ background: linear-gradient(180deg,#03040a 0%, #071025 80%) }
-.dark-mode .el-card{ background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border:1px solid rgba(255,255,255,0.04) }
-.dark-mode .title-text h1, .dark-mode .metric-value{ color:var(--text-main) }
-.dark-mode .metric-header, .dark-mode .metric-label, .dark-mode .chart-subtitle, .dark-mode .quick-label{ color:var(--text-secondary) }
+.hero-desc {
+  max-width: 44rem;
+  margin: 14px 0 0;
+  color: #5a6763;
+  font-size: 14px;
+  line-height: 1.9;
+}
 
-/* micro interactions */
-.el-card:hover{ transform: translateY(-4px); transition: transform 0.25s ease }
-.el-button:hover{ transform: translateY(-2px) }
-.spark-bar:hover{ transform: scaleY(1.05); filter:brightness(1.08) }
+.hero-aside {
+  flex: 0 0 min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
 
-/* responsive adjustments */
-@media (max-width: 980px){ .chart-card{ height:340px } .metric-value{ font-size:24px } .title-text h1{ font-size:16px } }
+.hero-statusline,
+.hero-meta,
+.hero-actions,
+.summary-strip,
+.section-head,
+.chart-header,
+.action-grid {
+  display: flex;
+  gap: 10px;
+}
 
-/* subtle rim lighting for panels */
-.el-card::after{ content:''; position:absolute; inset:0; pointer-events:none; border-radius:12px; box-shadow: inset 0 0 40px rgba(139,92,246,0.02) }
+.hero-statusline,
+.hero-actions,
+.section-head,
+.chart-header {
+  align-items: center;
+  justify-content: space-between;
+}
 
-/* small utility */
-.autostart-toggle{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-left:1px solid rgba(255,255,255,0.08) }
-.autostart-label{ font-size:12px; color:var(--text-secondary) }
+.hero-statusline {
+  flex-wrap: wrap;
+  color: #52615d;
+  font-size: 13px;
+}
 
-/* ensure charts and points pop */
-:deep(.chartjs-render-monitor) { border-radius:8px }
-:deep(.chartjs-tooltip) { background: rgba(3,6,12,0.85) }
+.status-pill,
+.status-tag,
+.mode-chip,
+.scene-pill,
+.summary-item,
+.suggest-box,
+.section-note,
+.section-caption,
+.slider-footline {
+  border: 1px solid rgba(47, 58, 55, 0.08);
+  background: rgba(245, 243, 239, 0.72);
+}
+
+.status-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.status-pill.is-live {
+  border-color: rgba(111, 143, 136, 0.28);
+  color: #2f5d55;
+}
+
+.hero-meta {
+  flex-wrap: wrap;
+  color: #2f3a37;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.hero-meta > div {
+  flex: 1 1 calc(50% - 10px);
+  min-width: 140px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.hero-actions {
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.autostart-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #566661;
+  font-size: 13px;
+}
+
+.status-tag {
+  border-radius: 999px;
+  color: #425550;
+}
+
+.soft-alert {
+  margin: 0 0 14px;
+  border: 1px solid rgba(192, 106, 91, 0.18);
+  background: rgba(245, 243, 239, 0.84);
+  color: #7b4b41;
+}
+
+.summary-strip {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.summary-item {
+  flex: 1 1 calc(25% - 10px);
+  min-width: 120px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.52);
+  display: grid;
+  gap: 4px;
+}
+
+.summary-label {
+  color: #6d7b77;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.summary-value {
+  font-size: 18px;
+  font-weight: 500;
+  color: #2f3a37;
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.42fr) minmax(0, 0.58fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.left-column,
+.right-column {
+  display: grid;
+  gap: 14px;
+}
+
+.module-card,
+.chart-card {
+  padding: 18px;
+}
+
+.section-head {
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.section-head.compact {
+  margin-bottom: 12px;
+}
+
+.section-head h2 {
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.section-note,
+.section-caption {
+  padding: 10px 12px;
+  border-radius: 14px;
+  color: #61706b;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.scene-pills {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.scene-pill,
+.mode-chip {
+  appearance: none;
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: #31403c;
+  cursor: pointer;
+  transition: transform 0.28s ease, border-color 0.28s ease, background 0.28s ease, opacity 0.28s ease;
+}
+
+.scene-pill {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  min-height: 66px;
+}
+
+.scene-pill small {
+  color: #6b7a75;
+  font-size: 12px;
+}
+
+.scene-pill.active,
+.mode-chip.active {
+  border-color: rgba(111, 143, 136, 0.42);
+  background: rgba(207, 222, 216, 0.58);
+}
+
+.scene-pill.muted {
+  opacity: 0.58;
+}
+
+.scene-pill:hover,
+.mode-chip:hover,
+.action-soft:hover,
+.action-main:hover,
+.suggest-button:hover {
+  transform: translateY(-1px);
+}
+
+.scenario-footnote {
+  margin-top: 12px;
+  color: #6b7a75;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.mode-switch {
+  display: flex;
+  gap: 8px;
+}
+
+.slider-frame {
+  padding: 12px 2px 6px;
+}
+
+.slider-footline {
+  display: inline-flex;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: #51615d;
+  font-size: 12px;
+}
+
+.action-grid {
+  flex-wrap: wrap;
+}
+
+.action-main,
+.action-soft,
+.suggest-button {
+  border-radius: 999px;
+  border: 1px solid rgba(47, 58, 55, 0.1);
+  background: rgba(255, 255, 255, 0.6);
+  color: #2f3a37;
+}
+
+.action-main {
+  min-width: 140px;
+  background: linear-gradient(180deg, rgba(111, 143, 136, 0.92), rgba(111, 143, 136, 0.8));
+  color: #f5f3ef;
+  border-color: rgba(111, 143, 136, 0.24);
+}
+
+.suggest-box {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: #5d6a66;
+  line-height: 1.7;
+}
+
+.suggest-button {
+  margin-left: 10px;
+}
+
+.chart-card {
+  min-height: 320px;
+}
+
+.chart-primary {
+  min-height: 420px;
+}
+
+.chart-secondary {
+  min-height: 280px;
+}
+
+.chart-header {
+  align-items: flex-start;
+}
+
+.chart-title {
+  color: #2f3a37;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.chart-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chart-wrapper {
+  position: relative;
+  min-height: 220px;
+}
+
+.chart-focus-wrapper {
+  min-height: 320px;
+}
+
+.chart-secondary-wrapper {
+  min-height: 220px;
+}
+
+.chart-wrapper canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+:deep(.el-card) {
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(47, 58, 55, 0.08);
+  background: rgba(255, 255, 255, 0.56);
+  box-shadow: none;
+}
+
+:deep(.el-card__body) {
+  padding: 0;
+}
+
+:deep(.el-card__header) {
+  padding: 0 0 14px;
+  border-bottom: 1px solid rgba(47, 58, 55, 0.08);
+  background: transparent;
+}
+
+:deep(.el-button) {
+  transition: transform 0.28s ease, opacity 0.28s ease, background 0.28s ease, border-color 0.28s ease;
+}
+
+:deep(.el-button:hover) {
+  transform: translateY(-1px);
+}
+
+:deep(.el-tag) {
+  border-radius: 999px;
+  border-color: rgba(47, 58, 55, 0.08);
+  background: rgba(255, 255, 255, 0.56);
+  color: #425550;
+}
+
+:deep(.el-slider__runway) {
+  height: 2px;
+  background: rgba(47, 58, 55, 0.12);
+}
+
+:deep(.el-slider__bar) {
+  height: 2px;
+  background: linear-gradient(90deg, #6f8f88, #cfded8);
+}
+
+:deep(.el-slider__button) {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(47, 58, 55, 0.14);
+  background: #f5f3ef;
+}
+
+:deep(.el-slider__marks-text) {
+  color: #70817c;
+  font-size: 12px;
+}
+
+:deep(.el-switch) {
+  --el-switch-on-color: #6f8f88;
+  --el-switch-off-color: rgba(111, 143, 136, 0.28);
+}
+
+:deep(.el-alert__content) {
+  color: #7b4b41;
+}
+
+.app-shell :deep(.el-card:hover) {
+  transform: translateY(-1px);
+}
+
+@media (max-width: 1120px) {
+  .hero-panel {
+    flex-direction: column;
+  }
+
+  .main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 14px;
+  }
+
+  .scene-pills {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-item {
+    flex: 1 1 100%;
+  }
+
+  .hero-copy h1 {
+    max-width: none;
+    font-size: 1.8rem;
+  }
+}
 </style>

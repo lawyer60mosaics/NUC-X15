@@ -103,6 +103,9 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         }
     }
     let window = app.get_webview_window("main").unwrap();
+    let _ = window.set_size(tauri::LogicalSize::new(1200.0, 780.0));
+    let _ = window.set_min_size(Some(tauri::LogicalSize::new(680.0, 480.0)));
+    let _ = window.center();
     let h = MenuItemBuilder::with_id("h", "显示界面").build(app)?;
     let q = MenuItemBuilder::with_id("q", "退出程序").build(app)?;
     let d = MenuItemBuilder::with_id("d", "调试模式").build(app)?;

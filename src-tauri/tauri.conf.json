@@ -4,7 +4,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "resources": [
     ],
     "icon": [
@@ -18,9 +18,6 @@
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
-      },
-      "wix": {
-        "language": "zh-CN"
       }
     },
     "linux": {
