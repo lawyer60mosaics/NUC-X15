@@ -63,7 +63,7 @@
           <div class="section-head">
             <div>
               <p class="section-kicker">场景</p>
-              <h2>静音，办公，游戏，性能</h2>
+              <h2>静音，办公，游戏，性能，基准</h2>
             </div>
             <div class="section-note">
               {{ suggestedIntensity !== null ? `建议 ${suggestedIntensity}%` : '暂无建议' }}
@@ -237,6 +237,34 @@ const isOverheat = computed(() => metrics.cpuTemp > 85 || metrics.gpuTemp > 85)
 const isTauriReady = () => !!(window.__TAURI__ && window.__TAURI__.core)
 
 // 快捷模式
+const SCENARIOS = {
+  silent: {
+    mode: 'silent',
+    label: '静音',
+    tags: ['噪音倾向: 低', '散热倾向: 中'],
+  },
+  office: {
+    mode: 'office',
+    label: '办公',
+    tags: ['噪音倾向: 中低', '散热倾向: 中高'],
+  },
+  gaming: {
+    mode: 'gaming',
+    label: '游戏',
+    tags: ['噪音倾向: 中高', '散热倾向: 高'],
+  },
+  performance: {
+    mode: 'performance',
+    label: '性能',
+    tags: ['噪音倾向: 高', '散热倾向: 极高'],
+  },
+  benchmark: {
+    mode: 'benchmark',
+    label: '基准',
+    tags: ['噪音倾向: 极高', '散热倾向: 压测'],
+  },
+}
+
 const mode = ref('office')
 const intensity = ref(50)
 const controlMode = ref('scene')
@@ -306,8 +334,10 @@ const buildCurveFromMode = (labels, selectedMode, k) => {
     const shaped = clamp(base, 10, 95)
     let offset = 0, slope = 1
     if (selectedMode === 'silent')      { offset = -14; slope = 0.82 }
-    else if (selectedMode === 'balanced') { offset = -4; slope = 1.0 }
+    else if (selectedMode === 'office' || selectedMode === 'balanced') { offset = -4; slope = 1.0 }
+    else if (selectedMode === 'gaming') { offset = 4; slope = 1.08 }
     else if (selectedMode === 'performance') { offset = 8; slope = 1.12 }
+    else if (selectedMode === 'benchmark') { offset = 14; slope = 1.22 }
     else if (selectedMode === 'auto') { offset = -6 + 12 * k; slope = 0.95 + 0.22 * k }
     const highTempGain = clamp((temp - 60) / 30, 0, 1)
     const speed = clamp(shaped * slope + offset + k * 18 + k * 20 * highTempGain, 10, 100)

@@ -90,7 +90,7 @@ async function refreshTdp(options = {}) {
     showMessage('TDP 已刷新', 'success')
   } catch (error) {
     console.error('get_tdp failed:', error)
-    showMessage(`读取 TDP 失败：${error.message || error}`, 'error')
+    showMessage(`读取 TDP 失败: ${error.message || error}`, 'error')
   } finally {
     if (!options.force) setBusy(false)
   }
@@ -116,13 +116,13 @@ async function applyTdp() {
   try {
     const applied = await invokeBackend('set_tdp', { t })
     if (applied !== true) {
-      throw new Error('硬件读回校验未通过')
+      throw new Error('硬件回写校验未通过')
     }
     await refreshTdp({ force: true })
     showMessage('TDP 已应用', 'success')
   } catch (error) {
     console.error('set_tdp failed:', error)
-    showMessage(`设置 TDP 失败：${error.message || error}`, 'error')
+    showMessage(`设置 TDP 失败: ${error.message || error}`, 'error')
   } finally {
     setBusy(false)
   }
@@ -144,12 +144,12 @@ function updateColorPreview() {
 
 async function setRgbColorMode(enabled) {
   toggle.classList.toggle('active', enabled)
+  toggle.setAttribute('aria-checked', String(enabled))
   rInput.disabled = enabled
   gInput.disabled = enabled
   bInput.disabled = enabled
   rgbButton.disabled = enabled || busy
-  rgbButton.style.background = enabled ? 'gray' : 'red'
-  colorPreview.style.backgroundColor = enabled ? 'gray' : colorPreview.style.backgroundColor
+  colorPreview.style.backgroundColor = enabled ? '#334155' : colorPreview.style.backgroundColor
 
   try {
     await invokeBackend(enabled ? 'set_rgb_color_y' : 'set_rgb_color_n')
@@ -157,7 +157,7 @@ async function setRgbColorMode(enabled) {
     showMessage(enabled ? '彩色模式已开启' : '彩色模式已关闭', 'success')
   } catch (error) {
     console.error('set rgb color mode failed:', error)
-    showMessage(`切换 RGB 模式失败：${error.message || error}`, 'error')
+    showMessage(`切换 RGB 模式失败: ${error.message || error}`, 'error')
   }
 }
 
@@ -176,7 +176,7 @@ async function applyRgb() {
     showMessage('RGB 已应用', 'success')
   } catch (error) {
     console.error('set_rgb failed:', error)
-    showMessage(`设置 RGB 失败：${error.message || error}`, 'error')
+    showMessage(`设置 RGB 失败: ${error.message || error}`, 'error')
   } finally {
     setBusy(false)
   }
@@ -187,6 +187,12 @@ applyButton.addEventListener('click', applyTdp)
 rgbButton.addEventListener('click', applyRgb)
 toggle.addEventListener('click', () => {
   setRgbColorMode(!toggle.classList.contains('active'))
+})
+toggle.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    setRgbColorMode(!toggle.classList.contains('active'))
+  }
 })
 
 ;[rInput, gInput, bInput].forEach((input) => {

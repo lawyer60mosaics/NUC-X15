@@ -1,0 +1,235 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Inter:wght@300;400;600;700&display=swap');
+
+:root {
+  /* 全局 iOS 26 液态玻璃设计系统变量 */
+  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: 'Inter', "Noto Sans SC", -apple-system, "Microsoft YaHei", sans-serif;
+  
+  --bg-gradient-start: #040812;
+  --bg-gradient-end: #070e1e;
+  
+  /* 场景晕染背景默认值（办公档为清爽绿） */
+  --glow-color-1: rgba(34, 197, 94, 0.10);
+  --glow-color-2: rgba(45, 212, 191, 0.08);
+  --accent-color: #22c55e;
+  --accent-color-glow: rgba(34, 197, 94, 0.28);
+  
+  /* 文本对比层级 */
+  --text-primary: rgba(255, 255, 255, 0.94);
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-tertiary: rgba(255, 255, 255, 0.38);
+  
+  /* 折射高光边缘 */
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+  --glass-border-inner: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  
+  /* 玻璃材质渐变层 */
+  --glass-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 100%);
+  --glass-gradient-hover: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
+  --glass-gradient-active: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
+  
+  /* 宽幅低明度阴影 */
+  --glass-shadow: 0 24px 64px rgba(0, 0, 0, 0.32);
+  
+  /* 圆角规范 */
+  --radius-panel: 22px;
+  --radius-control: 12px;
+  --radius-capsule: 999px;
+}
+
+/* 各场景下的液态光圈定制 */
+[data-scenario="silent"] {
+  --glow-color-1: rgba(56, 189, 248, 0.14);
+  --glow-color-2: rgba(45, 212, 191, 0.06);
+  --accent-color: #38bdf8;
+  --accent-color-glow: rgba(56, 189, 248, 0.30);
+}
+
+[data-scenario="office"] {
+  --glow-color-1: rgba(34, 197, 94, 0.12);
+  --glow-color-2: rgba(45, 212, 191, 0.06);
+  --accent-color: #22c55e;
+  --accent-color-glow: rgba(34, 197, 94, 0.28);
+}
+
+[data-scenario="gaming"] {
+  --glow-color-1: rgba(249, 115, 22, 0.14);
+  --glow-color-2: rgba(239, 68, 68, 0.08);
+  --accent-color: #f97316;
+  --accent-color-glow: rgba(249, 115, 22, 0.32);
+}
+
+[data-scenario="performance"] {
+  --glow-color-1: rgba(239, 68, 68, 0.16);
+  --glow-color-2: rgba(249, 115, 22, 0.08);
+  --accent-color: #ef4444;
+  --accent-color-glow: rgba(239, 68, 68, 0.35);
+}
+
+[data-scenario="benchmark"] {
+  --glow-color-1: rgba(250, 204, 21, 0.16);
+  --glow-color-2: rgba(239, 68, 68, 0.10);
+  --accent-color: #facc15;
+  --accent-color-glow: rgba(250, 204, 21, 0.35);
+}
+
+/* 基础重置 */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg-gradient-start);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* 酷炫流体色彩背景定位光圈 */
+.fluid-glow-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: radial-gradient(circle at bottom right, var(--bg-gradient-end) 0%, var(--bg-gradient-start) 100%);
+}
+
+.fluid-glow-orb-1,
+.fluid-glow-orb-2 {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.8;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fluid-glow-orb-1 {
+  width: 450px;
+  height: 450px;
+  background: var(--glow-color-1);
+  top: -80px;
+  right: -50px;
+  animation: floatOrb1 15s ease-in-out infinite alternate;
+}
+
+.fluid-glow-orb-2 {
+  width: 350px;
+  height: 350px;
+  background: var(--glow-color-2);
+  bottom: -50px;
+  left: -50px;
+  animation: floatOrb2 12s ease-in-out infinite alternate;
+}
+
+@keyframes floatOrb1 {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(-40px, 30px) scale(1.15); }
+}
+
+@keyframes floatOrb2 {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(30px, -20px) scale(1.12); }
+}
+
+/* 按钮微交互 */
+button {
+  font-family: var(--font-body);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+/* 极细横向滚动条定制 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* GlassCard 动画与交互效果定义 */
+.glass-card-component {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-hover {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), 
+              background 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-hover:hover {
+  transform: translateY(-3px);
+  background: var(--glass-gradient-hover) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.45) !important;
+}
+
+.glass-card-active:active {
+  transform: scale(0.985) !important;
+  background: var(--glass-gradient-active) !important;
+}
+
+@keyframes shimmerGlint {
+  0% { left: -150%; }
+  35% { left: 150%; }
+  100% { left: 150%; }
+}
+
+/* 跨浏览器 iOS 拟态 range 滑块样式定制 */
+.liquid-range-input::-webkit-slider-runnable-track {
+  background: transparent;
+  border: none;
+}
+
+.liquid-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-top: -5px;
+  position: relative;
+  z-index: 5;
+}
+
+.liquid-range-input::-webkit-slider-thumb:hover {
+  transform: scale(1.18);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+
+.liquid-range-input::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+}
+
+
+
+

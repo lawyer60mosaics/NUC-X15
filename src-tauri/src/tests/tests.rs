@@ -14,7 +14,7 @@ fn test_api_fan() {
     }
     println!("请随时准备好你的NUC控制台基准模式，出现异常请打开基准模式");
     wmi_security();
-    let api = ApiFan::init();
+    let api = ApiFan::try_init().expect("hardware WMI initialization should succeed");
     api.set_fan_auto();
     sleep(Duration::from_secs(1));
     assert_eq!(api.get_fan_mode(), 2);
@@ -51,7 +51,7 @@ fn led_color() {
     }
     println!("请查看你的LED");
     wmi_security();
-    let api = ApiFan::init();
+    let api = ApiFan::try_init().expect("hardware WMI initialization should succeed");
     api.set_ac_led_color_y();
     sleep(Duration::from_secs(3));
     assert_eq!(api.get_ac_led_color(), 2);
@@ -63,12 +63,14 @@ fn led_color() {
 
 // ── 纯逻辑测试（无需硬件，可直接 cargo test） ──────────────────────────────
 
+#[cfg(all(test, windows))]
+use crate::plug::struct_set::{ec_read_payload, ec_write_payload};
 #[cfg(test)]
 use crate::plug::{
     config::{default_fan_data, normalize_fan_data},
-    fan_curve::speed_handle,
+    fan_curve::{find_speed_for_temp, sanitize_curve, speed_handle},
     ramp::ramp_speed,
-    struct_set::{FanData, FanPoint},
+    struct_set::{FanControlMode, FanData, FanPoint},
 };
 
 /// 问题2：插值结果必须夹紧到 [0, 100]
@@ -94,6 +96,79 @@ fn test_speed_handle_div_zero() {
 fn test_speed_handle_below_first_point() {
     // temp_old=0/speed_old=0 时，25°C 在 0→30% 曲线中插值
     assert_eq!(speed_handle(0, 0, 30, 30, 25), 25);
+}
+
+#[test]
+fn test_sanitize_curve_keeps_speed_monotonic() {
+    let curve = vec![
+        FanPoint {
+            temperature: 60,
+            speed: 70,
+        },
+        FanPoint {
+            temperature: 40,
+            speed: 30,
+        },
+        FanPoint {
+            temperature: 50,
+            speed: 20,
+        },
+    ];
+
+    let sanitized = sanitize_curve(&curve, "左");
+
+    assert_eq!(
+        sanitized,
+        vec![
+            FanPoint {
+                temperature: 40,
+                speed: 30,
+            },
+            FanPoint {
+                temperature: 50,
+                speed: 30,
+            },
+            FanPoint {
+                temperature: 60,
+                speed: 70,
+            },
+        ]
+    );
+    assert_eq!(find_speed_for_temp(&sanitized, 55, "左"), Some(50));
+}
+
+#[test]
+fn test_sanitize_curve_merges_duplicate_temperatures_with_safer_speed() {
+    let curve = vec![
+        FanPoint {
+            temperature: 55,
+            speed: 35,
+        },
+        FanPoint {
+            temperature: 55,
+            speed: 60,
+        },
+        FanPoint {
+            temperature: 65,
+            speed: 50,
+        },
+    ];
+
+    let sanitized = sanitize_curve(&curve, "右");
+
+    assert_eq!(
+        sanitized,
+        vec![
+            FanPoint {
+                temperature: 55,
+                speed: 60,
+            },
+            FanPoint {
+                temperature: 65,
+                speed: 60,
+            },
+        ]
+    );
 }
 
 /// 问题10：满转判断应精确匹配，而非依赖加法
@@ -155,6 +230,22 @@ fn test_wmi_format_string_length() {
         let s = format!("0x0000000000{:02X}0783", v);
         assert_eq!(s.len(), 18, "v={} TDP格式字符串长度异常: {}", v, s);
     }
+}
+
+#[test]
+#[cfg(windows)]
+fn test_ec_tdp_payload_format() {
+    assert_eq!(ec_read_payload(0x0783), "0x0000010000000783");
+    assert_eq!(
+        ec_write_payload(0x0783, 55).as_deref(),
+        Some("0x0000000000370783")
+    );
+    assert_eq!(
+        ec_write_payload(0x0784, 80).as_deref(),
+        Some("0x0000000000500784")
+    );
+    assert!(ec_write_payload(0x0783, -1).is_none());
+    assert!(ec_write_payload(0x0783, 256).is_none());
 }
 
 /// 新问题：get_fan_speeds 过滤逻辑验证（温度下界改为 1）
@@ -243,4 +334,26 @@ fn test_normalize_fan_data_clamps_values() {
     assert!(n.monitor.sample_interval_ms >= 500 && n.monitor.sample_interval_ms <= 1000);
     assert!(n.left_fan[0].temperature >= 1 && n.left_fan[0].temperature <= 110);
     assert!(n.left_fan[0].speed >= 0 && n.left_fan[0].speed <= 100);
+}
+
+#[test]
+fn test_normalize_fan_data_accepts_benchmark_preset() {
+    let fan_data = FanData {
+        control: crate::plug::struct_set::FanControlPolicy {
+            preset: "benchmark".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let normalized = normalize_fan_data(fan_data);
+
+    assert_eq!(normalized.control.mode, FanControlMode::Benchmark);
+    assert_eq!(normalized.control.preset, "benchmark");
+    assert_eq!(normalized.control.ramp_up_step, 12);
+    assert_eq!(normalized.control.ramp_down_step, 12);
+    assert_eq!(normalized.control.cpu_hysteresis_bandwidth, 1);
+    assert_eq!(normalized.control.gpu_hysteresis_bandwidth, 1);
+    assert_eq!(normalized.control.cpu_fan_max_percent, 100);
+    assert_eq!(normalized.control.gpu_fan_max_percent, 100);
 }

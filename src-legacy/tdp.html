@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NUCtool Power & RGB</title>
+  <meta name="description" content="NUCtool CPU/GPU TDP 与 RGB 控制窗口">
+  <link rel="stylesheet" href="assets/tdp.css">
+</head>
+<body oncontextmenu="return false;" onselectstart="return false;" ondragstart="return false;">
+  <main class="tdp-shell">
+    <header class="tdp-header">
+      <div>
+        <p class="eyebrow">NUCtool</p>
+        <h1>功耗与灯光</h1>
+        <p class="subtitle">调整 CPU/GPU 功耗墙、TCC 偏移和 RGB 灯效。</p>
+      </div>
+      <div class="status-card">
+        <span class="status-dot"></span>
+        <span>Hardware Panel</span>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>TDP 限制</h2>
+          <p>单位为瓦特。提交后会读取硬件回写值进行确认。</p>
+        </div>
+        <button id="a" class="secondary" type="button">读取 TDP</button>
+      </div>
+
+      <div class="tdp-grid">
+        <label class="field">
+          <span>CPU 长时功耗</span>
+          <input type="number" inputmode="numeric" id="cpu1" placeholder="PL1 / W" min="0">
+        </label>
+        <label class="field">
+          <span>CPU 短时睿频</span>
+          <input type="number" inputmode="numeric" id="cpu2" placeholder="PL2 / W" min="0">
+        </label>
+        <label class="field">
+          <span>GPU 长时功耗</span>
+          <input type="number" inputmode="numeric" id="gpu1" placeholder="Arc GPU / W" min="0">
+        </label>
+        <label class="field">
+          <span>GPU 短时睿频</span>
+          <input type="number" inputmode="numeric" id="gpu2" placeholder="Arc GPU / W" min="0">
+        </label>
+        <label class="field field-wide">
+          <span>温度墙偏移</span>
+          <input type="number" inputmode="numeric" id="tcc" placeholder="TCC / deg C">
+        </label>
+      </div>
+
+      <div class="action-row">
+        <button id="b" class="primary" type="button">应用更改</button>
+      </div>
+    </section>
+
+    <section class="panel rgb-panel">
+      <div class="section-head">
+        <div>
+          <h2>RGB 灯效</h2>
+          <p>手动颜色使用 0-50 的控制范围，硬件写入前会映射到 0-255。</p>
+        </div>
+        <div class="toggle-line">
+          <span>彩色模式</span>
+          <button id="rgb_toggle" class="toggle" type="button" role="switch" aria-checked="false" aria-label="切换彩色模式"></button>
+        </div>
+      </div>
+
+      <div class="rgb-layout">
+        <div class="rgb-settings">
+          <label class="rgb-input">
+            <span>R</span>
+            <input type="range" id="rgb_r" min="0" max="50" value="0">
+            <strong id="r_val">0</strong>
+          </label>
+          <label class="rgb-input">
+            <span>G</span>
+            <input type="range" id="rgb_g" min="0" max="50" value="0">
+            <strong id="g_val">0</strong>
+          </label>
+          <label class="rgb-input">
+            <span>B</span>
+            <input type="range" id="rgb_b" min="0" max="50" value="0">
+            <strong id="b_val">0</strong>
+          </label>
+        </div>
+
+        <div class="preview-card">
+          <div class="color-preview" id="colorPreview"></div>
+          <button id="rgb_button" class="secondary red-button" type="button">应用 RGB</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="assets/tdp.js" defer></script>
+</body>
+</html>

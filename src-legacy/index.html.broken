@@ -1,0 +1,1786 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NUCtool - 智能风扇控制</title>
+    <!-- App meta and performance hints -->
+    <meta name="description" content="NUCtool — 智能风扇控制与监控（CPU/GPU 温度与风扇调速）">
+    <meta name="theme-color" content="#05060a">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <!-- Chart.js drag plugin (本地) -->
+    <script src="./assets/chartjs-plugin-dragdata.js"></script>
+    <!-- 检测关键库加载状态 -->
+    <script>
+        // 全局加载状态跟踪
+        window.__libsLoaded = {
+            vue: false,
+            elementPlus: false,
+            elementPlusIcons: false,
+            chart: false,
+            chartjsPlugin: false,
+            total: 5,
+            loaded: 0
+        };
+
+        window.__checkAllLoaded = function() {
+            const state = window.__libsLoaded;
+            const allLoaded = Object.values(state).slice(0, 5).every(v => v === true);
+            console.log('库加载状态:', state);
+
+            if (allLoaded) {
+                console.log('✅ 所有库已加载完成');
+                // 触发自定义事件通知 Vue 应用初始化
+                if (window.dispatchEvent) {
+                    window.dispatchEvent(new Event('__libsReady'));
+                }
+            }
+        };
+
+        // 设置超时警告（30秒）
+        setTimeout(function() {
+            const state = window.__libsLoaded;
+            if (state.loaded < state.total) {
+                console.error('⚠️ 部分库加载超时，已加载:', state.loaded, '/', state.total);
+                const missing = [];
+                if (!state.vue) missing.push('Vue');
+                if (!state.elementPlus) missing.push('Element Plus');
+                if (!state.elementPlusIcons) missing.push('Element Plus Icons');
+                if (!state.chart) missing.push('Chart.js');
+                if (!state.chartjsPlugin) missing.push('Chart.js Drag Plugin');
+                console.error('未加载的库:', missing.join(', '));
+
+                // 显示错误提示
+                const loadingText = document.getElementById('loading-text');
+                if (loadingText) {
+                    loadingText.textContent = '⚠️ 库加载超时，请检查网络连接后刷新页面';
+                    loadingText.style.color = '#ff6b6b';
+                }
+            }
+        }, 30000);
+    </script>
+    <style>
+        /* 加载指示器样式 */
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #05060a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            flex-direction: column;
+            gap: 20px;
+        }
+        #loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #8b5cf6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        #loading-text {
+            color: #e6eef8;
+            font-size: 14px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* 确保 app 容器可见 */
+        #app {
+            width: 100%;
+            height: 100%;
+            min-height: 100vh;
+            background: #05060a;
+        }
+        /* 错误提示样式 */
+        #error-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #1a0505;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 99999;
+            padding: 40px;
+        }
+        #error-overlay.show {
+            display: flex;
+        }
+        #error-content {
+            max-width: 600px;
+            text-align: center;
+            color: #fff;
+        }
+        #error-overlay h2 {
+            color: #ff6b6b;
+            margin-bottom: 20px;
+        }
+        #error-overlay pre {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 8px;
+            overflow: auto;
+            text-align: left;
+            font-size: 12px;
+        }
+        #error-overlay button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #ff6b6b;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <!-- 加载指示器 -->
+    <div id="loading-overlay">
+        <div id="loading-spinner"></div>
+        <div id="loading-text">正在加载 NUCtool...</div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div id="error-overlay">
+        <div id="error-content">
+            <h2>⚠️ 应用加载失败</h2>
+            <p>应用程序初始化时发生错误。错误信息：</p>
+            <pre id="error-message"></pre>
+            <button onclick="window.location.reload()">重新加载</button>
+        </div>
+    </div>
+
+    <!-- Vue 应用挂载点 -->
+    <div id="app"></div>
+    <style>
+        * { box-sizing: border-box; }
+        :root{
+            --bg-1: linear-gradient(180deg, #05060a 0%, #0b1020 60%);
+            --panel-bg: rgba(255,255,255,0.03);
+            --glass-border: rgba(255,255,255,0.06);
+            --accent-1: #8b5cf6;
+            --accent-2: #00e5ff;
+            --muted: #b8c5d6;
+            --text-main: #f0f5ff;
+            --text-secondary: #d0dbe8;
+            --soft-shadow: 0 6px 24px rgba(2,6,23,0.6);
+        }
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+            background: var(--bg-1);
+            color: var(--text-main);
+        }
+        #app { width: 100%; min-height: 100vh; }
+
+        /* ===== 基础布局 ===== */
+        .app-container {
+            padding: 14px;
+            /* LoL-2025 inspired cinematic dark gradient to match App.vue theme */
+            background: linear-gradient(180deg, #05060a 0%, #0b1020 60%);
+            min-height: 100vh;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        /* ===== 深色模式 ===== */
+        .dark-mode { background: #1a1a2e !important; color: #e0e0e0 !important; }
+        .dark-mode .el-card { background: #16213e !important; border-color: #0f3460 !important; color: #e0e0e0 !important; }
+        .dark-mode .el-card__header { border-bottom-color: #0f3460 !important; }
+        .dark-mode .title-text h1 { color: #e0e0e0 !important; }
+        .dark-mode .metric-value { color: #e0e0e0 !important; }
+        .dark-mode .chart-title { color: #e0e0e0 !important; }
+        .dark-mode .metric-label, .dark-mode .metric-unit, .dark-mode .chart-subtitle { color: #c8d0dc !important; }
+        .dark-mode .quick-label, .dark-mode .quick-tip, .dark-mode .autostart-label { color: #c8d0dc !important; }
+        .dark-mode .el-radio-button__inner { background: #16213e !important; color: #e0e0e0 !important; border-color: #0f3460 !important; }
+
+        /* ===== 导航栏 ===== */
+        .navbar { margin-bottom: 12px; }
+        .navbar-content { display: flex; justify-content: space-between; align-items: center; }
+        .app-title { display: flex; align-items: center; gap: 12px; }
+        .title-icon { color: #409EFF; }
+        .title-text h1 { font-size: 18px; font-weight: 700; color: var(--text-main); margin: 0; }
+        .title-text p  { font-size: 11px; color: var(--muted); margin: 2px 0 0 0; }
+        .status-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+        /* 脉冲 & 旋转 */
+        .pulse-tag { animation: pulse 1.8s ease-in-out infinite; }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(103,194,58,0.4); }
+            50%       { box-shadow: 0 0 0 6px rgba(103,194,58,0); }
+        }
+        .spin-icon { animation: spin 1.5s linear infinite; display: inline-block; margin-right: 4px; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .autostart-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-left: 1px solid rgba(255,255,255,0.1); }
+        .autostart-label { font-size: 12px; color: #d0dbe8; }
+
+        /* ===== 过温警告 ===== */
+        .overheat-alert { margin-bottom: 10px; border-radius: 8px; animation: shake 0.4s ease-in-out; }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25%       { transform: translateX(-4px); }
+            75%       { transform: translateX(4px); }
+        }
+
+        /* ===== 指标卡 ===== */
+        .metrics-grid { margin-bottom: 12px; }
+        .metric-card .el-card__body { padding: 14px 16px !important; }
+        .metric-header { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; color: #d0dbe8; }
+        .metric-label { font-size: 11px; font-weight: 600; text-transform: uppercase; flex: 1; }
+
+        /* 状态徽章 */
+        .metric-badge { font-weight:700; font-size:11px; padding:4px 8px; border-radius:999px }
+        .badge-gray   { background: #f4f4f5; color: #909399; }
+        .badge-green  { background: linear-gradient(90deg,#0f5132 0%, #154d3f 100%); color:#c7ffd8 }
+        .badge-orange { background: linear-gradient(90deg,#4d2b00 0%, #7a4200 100%); color:#ffe8c6 }
+        .badge-red    { background: linear-gradient(90deg,#3b0f0f 0%, #5c1919 100%); color:#ffd7d7 }
+        .badge-blue   { background: linear-gradient(90deg,#062f4f 0%, #083b67 100%); color:#cfeaff }
+
+        .metric-value-container { display: flex; align-items: baseline; gap: 4px; }
+        .metric-value { font-size: 30px; font-weight: 700; color: var(--text-main); line-height: 1; font-variant-numeric: tabular-nums; transition: color 0.5s; }
+        .metric-unit { font-size: 14px; color: var(--muted); }
+        .metric-progress { margin: 8px 0 6px; }
+
+        /* Sparkline */
+        .metric-trend { display: flex; align-items: flex-end; gap: 2px; height: 20px; margin-top: 4px; }
+        .spark-bar { flex: 1; min-height: 2px; border-radius: 1px; transition: height 0.3s, background 0.3s; opacity: 0.7; }
+
+        /* ===== 快捷模式卡 ===== */
+        .quick-card { margin-bottom: 12px; }
+        .quick-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+        .quick-block { display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
+        .quick-block.stretch { flex: 1; min-width: 260px; }
+        .quick-label { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #d0dbe8; gap: 4px; }
+        .quick-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+        /* ===== 图表区 ===== */
+        .charts-container { margin-bottom: 12px; }
+        .chart-card { height: calc(50vh - 90px); min-height: 220px; }
+        .chart-card .el-card__body { height: calc(100% - 56px) !important; padding: 10px 14px !important; }
+        .chart-header { display: flex; align-items: center; gap: 8px; }
+        .chart-title { font-size: 14px; font-weight: 600; color: var(--text-main); }
+        .chart-subtitle { font-size: 11px; color: var(--text-secondary); margin: 1px 0 0 0; }
+        .chart-wrapper { height: 100%; position: relative; }
+        .chart-wrapper canvas { width: 100% !important; height: 100% !important; }
+
+        /* ===== 控制按钮 ===== */
+        .controls { display: flex; justify-content: center; align-items: center; gap: 10px; padding: 4px 0 8px; }
+        .main-control-btn { min-width: 140px; font-weight: 600; }
+        /* Small theme overrides to harmonize with App.vue LoL-2025 theme */
+        .el-card { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.015)); border: 1px solid var(--glass-border); border-radius: 12px; box-shadow: var(--soft-shadow); backdrop-filter: blur(6px) saturate(110%); }
+        .title-icon { width:40px; height:40px; display:flex; align-items:center; justify-content:center; border-radius:8px; background:linear-gradient(120deg,var(--accent-1), var(--accent-2)); box-shadow:0 6px 18px rgba(138,92,246,0.12); }
+
+        /* ===== Micro interactions & accessibility ===== */
+        .el-button { transition: transform .18s cubic-bezier(.2,.9,.2,1), box-shadow .18s ease, background .18s; border-radius:10px; color: var(--text-main); }
+        .el-button--primary{ background: linear-gradient(90deg,var(--accent-1), var(--accent-2)); border:none; box-shadow: 0 8px 24px rgba(139,92,246,0.12); }
+        .el-button--primary:hover, .el-button--primary:focus { transform: translateY(-2px); box-shadow: 0 14px 40px rgba(139,92,246,0.18); }
+        .el-button--success{ background: linear-gradient(90deg,#2ecc71,#66d08f); border:none; }
+        .el-button:focus-visible, .el-switch__core:focus-visible { outline: 3px solid rgba(139,92,246,0.12); outline-offset: 3px; border-radius:10px; }
+
+        /* subtle glass rim lighting for panels */
+        .el-card{ position:relative; overflow:visible }
+        .el-card::before{ content: ''; position: absolute; inset: -1px; border-radius: 12px; pointer-events: none; background: linear-gradient(90deg, rgba(139,92,246,0.04), rgba(0,229,255,0.02)); filter: blur(10px); opacity: 0.85 }
+
+        /* Chart tooltip / rendering helpers */
+        .chartjs-tooltip { background: rgba(3,6,12,0.92) !important; color: #fff !important; padding: 6px 8px !important; border-radius: 6px !important; box-shadow: 0 8px 28px rgba(2,6,23,0.6) !important }
+        .chart-wrapper canvas { image-rendering: -webkit-optimize-contrast; }
+
+        /* Respect user preference for reduced motion */
+        @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important } }
+
+        /* Responsive tweaks */
+        @media (max-width: 980px){ .chart-card{ height:340px } .metric-value{ font-size:24px } .title-text h1{ font-size:16px } }
+        @media (max-width: 760px){ .navbar-content{ flex-direction: column; align-items: flex-start; gap:8px } .quick-row{ flex-direction:column } .quick-block.stretch{ min-width:unset } }
+        /* Accessibility: stronger focus rings */
+        :focus-visible{ outline: 2px solid rgba(139,92,246,0.14); outline-offset: 2px }
+
+        /* Small-screen chart adjustments */
+        @media (max-width: 480px){ .chart-wrapper canvas{ height:220px!important } }
+    </style>
+</head>
+<body>
+    <!-- 加载指示器 -->
+    <div id="loading-overlay">
+        <div id="loading-spinner"></div>
+        <div id="loading-text">正在加载 NUCtool...</div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div id="error-overlay">
+        <div id="error-content">
+            <h2>⚠️ 应用加载失败</h2>
+            <p>应用程序初始化时发生错误。错误信息：</p>
+            <pre id="error-message"></pre>
+            <button onclick="window.location.reload()">重新加载</button>
+        </div>
+    </div>
+
+    <!-- Vue 应用挂载点 -->
+    <div id="app"></div>
+
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js" onload="window.__libsLoaded.vue=true;window.__libsLoaded.loaded++;window.__checkAllLoaded()" onerror="console.error('Vue 加载失败')"></script>
+    <!-- Element Plus -->
+    <script src="https://unpkg.com/element-plus" onload="window.__libsLoaded.elementPlus=true;window.__libsLoaded.loaded++;window.__checkAllLoaded()" onerror="console.error('Element Plus 加载失败')"></script>
+    <!-- Element Plus Icons -->
+    <script src="https://unpkg.com/@element-plus/icons-vue" onload="window.__libsLoaded.elementPlusIcons=true;window.__libsLoaded.loaded++;window.__checkAllLoaded()" onerror="console.error('Element Plus Icons 加载失败')"></script>
+    <!-- Chart.js 加载检测 -->
+    <script>
+        if (typeof Chart !== 'undefined') {
+            window.__libsLoaded.chart = true;
+            window.__libsLoaded.loaded++;
+            window.__checkAllLoaded();
+        } else {
+            // 等待 Chart.js 加载
+            var checkChart = setInterval(function() {
+                if (typeof Chart !== 'undefined') {
+                    window.__libsLoaded.chart = true;
+                    window.__libsLoaded.loaded++;
+                    window.__checkAllLoaded();
+                    clearInterval(checkChart);
+                }
+            }, 100);
+        }
+    </script>
+    <!-- Chart.js Plugin 加载检测 -->
+    <script>
+        if (typeof chartjsPluginDragData !== 'undefined' || typeof window.chartjsPluginDragData !== 'undefined') {
+            window.__libsLoaded.chartjsPlugin = true;
+            window.__libsLoaded.loaded++;
+            window.__checkAllLoaded();
+        } else {
+            // 等待 plugin 加载
+            var checkPlugin = setInterval(function() {
+                if (typeof chartjsPluginDragData !== 'undefined' || typeof window.chartjsPluginDragData !== 'undefined' || typeof window.index !== 'undefined') {
+                    window.__libsLoaded.chartjsPlugin = true;
+                    window.__libsLoaded.loaded++;
+                    window.__checkAllLoaded();
+                    clearInterval(checkPlugin);
+                }
+            }, 100);
+        }
+    </script>
+
+    <!-- ===== NEW SCRIPT START ===== -->
+    <script>
+        // 等待所有库加载完成
+        function waitForLibs() {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('库加载超时'));
+                }, 35000);
+
+                window.addEventListener('__libsReady', function handler() {
+                    clearTimeout(timeout);
+                    console.log('📚 所有库已加载完成，开始初始化应用...');
+                    resolve();
+                }, { once: true });
+
+                // 如果库已经加载完成
+                if (window.__libsLoaded && window.__libsLoaded.loaded >= window.__libsLoaded.total) {
+                    clearTimeout(timeout);
+                    console.log('📚 库已预先加载完成，开始初始化应用...');
+                    resolve();
+                }
+            });
+        }
+
+        // 初始化应用
+        async function initApp() {
+            try {
+                await waitForLibs();
+
+                console.log('🚀 开始初始化 Vue 应用...');
+
+                const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
+                const { ElMessage } = ElementPlus;
+                const SPARK_LEN = 20;
+
+                console.log('✅ Vue 和 Element Plus 已就绪');
+        const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue
+        const { ElMessage } = ElementPlus
+        const SPARK_LEN = 20
+
+        if (window.index) { Chart.register(window.index) }
+        else {
+            // Try several common global names the plugin might expose, then register if found.
+            const pluginCandidates = [
+                window.chartjsPluginDragData, // common camelCase
+                window.chartjs_plugin_dragdata, // fallback name
+                window.dragDataPlugin, // alternative
+                window.ChartDragDataPlugin,
+                window.index
+            ]
+            const plugin = pluginCandidates.find(p => !!p)
+            if (plugin && Chart && typeof Chart.register === 'function') {
+                try { Chart.register(plugin) } catch (e) { console.warn('注册 chartjs drag plugin 失败', e) }
+            } else {
+                console.warn('chartjs-plugin-dragdata 未找到或未导出为已知全局名，请确保脚本正确加载')
+            }
+        }
+
+        const App = {
+            template: `
+<div class="app-container" :class="{ 'dark-mode': isDarkMode }">
+
+  <!-- 顶部导航栏 -->
+  <el-card class="navbar" shadow="never">
+    <div class="navbar-content">
+      <div class="app-title">
+        <el-icon :size="28" class="title-icon"><Promotion /></el-icon>
+        <div class="title-text">
+          <h1>NUCtool 智能风扇控制</h1>
+          <p>Professional Fan Management System</p>
+        </div>
+      </div>
+      <div class="status-bar">
+        <el-tag :type="fanStatus.type" effect="dark" :class="{ 'pulse-tag': isRunning }">
+          <span v-if="isRunning" class="spin-icon">↻</span>{{ fanStatus.text }}
+        </el-tag>
+        <el-tag :type="configStatus.type" effect="dark">{{ configStatus.text }}</el-tag>
+        <div class="autostart-toggle">
+          <span class="autostart-label">开机自启</span>
+          <el-switch v-model="autostartEnabled" @change="toggleAutostart"
+            inline-prompt active-text="开" inactive-text="关" />
+        </div>
+        <el-tooltip content="切换深色/浅色模式" placement="bottom">
+          <el-button :icon="isDarkMode ? SunnyIcon : MoonIcon" circle size="small"
+            @click="isDarkMode = !isDarkMode" />
+        </el-tooltip>
+      </div>
+    </div>
+  </el-card>
+
+  <!-- 过温警告 -->
+  <el-alert v-if="isOverheat"
+    :title="'⚠️  过温警告：CPU 阈值 ' + alertConfig.cpu_threshold + '°C / GPU 阈值 ' + alertConfig.gpu_threshold + '°C，风扇已加速散热！'"
+    type="error" effect="dark" :closable="false" show-icon class="overheat-alert" />
+
+  <!-- 监控指标 -->
+  <el-row :gutter="12" class="metrics-grid">
+    <el-col :span="6">
+      <el-card shadow="hover" class="metric-card">
+        <div class="metric-header">
+          <el-icon :size="18"><Sunny /></el-icon>
+          <span class="metric-label">CPU 温度</span>
+          <span class="metric-badge" :class="getTempLevel(metrics.cpuTemp)">{{ getTempLevelText(metrics.cpuTemp) }}</span>
+        </div>
+        <div class="metric-value-container">
+          <span class="metric-value" :style="{ color: getTempColor(metrics.cpuTemp) }">{{ metrics.cpuTemp ?? '--' }}</span>
+          <span class="metric-unit">°C</span>
+        </div>
+        <el-progress :percentage="metrics.cpuTemp ? Math.min(metrics.cpuTemp, 100) : 0"
+          :color="getTempColor(metrics.cpuTemp)" :stroke-width="4" :show-text="false" class="metric-progress" />
+        <div class="metric-trend">
+          <span v-for="(v,i) in cpuTempSpark" :key="i" class="spark-bar"
+            :style="{ height: Math.max(2, v/100*20)+'px', background: getTempColor(v) }"></span>
+        </div>
+      </el-card>
+    </el-col>
+    <el-col :span="6">
+      <el-card shadow="hover" class="metric-card">
+        <div class="metric-header">
+          <el-icon :size="18"><Cpu /></el-icon>
+          <span class="metric-label">GPU 温度</span>
+          <span class="metric-badge" :class="getTempLevel(metrics.gpuTemp)">{{ getTempLevelText(metrics.gpuTemp) }}</span>
+        </div>
+        <div class="metric-value-container">
+          <span class="metric-value" :style="{ color: getTempColor(metrics.gpuTemp) }">{{ metrics.gpuTemp ?? '--' }}</span>
+          <span class="metric-unit">°C</span>
+        </div>
+        <el-progress :percentage="metrics.gpuTemp ? Math.min(metrics.gpuTemp, 100) : 0"
+          :color="getTempColor(metrics.gpuTemp)" :stroke-width="4" :show-text="false" class="metric-progress" />
+        <div class="metric-trend">
+          <span v-for="(v,i) in gpuTempSpark" :key="i" class="spark-bar"
+            :style="{ height: Math.max(2, v/100*20)+'px', background: getTempColor(v) }"></span>
+        </div>
+      </el-card>
+    </el-col>
+    <el-col :span="6">
+      <el-card shadow="hover" class="metric-card">
+        <div class="metric-header">
+          <el-icon :size="18"><WindPower /></el-icon>
+          <span class="metric-label">CPU 风扇</span>
+          <span class="metric-badge" :class="metrics.cpuFan ? 'badge-blue' : 'badge-gray'">
+            {{ metrics.cpuFan ? '运转中' : '待机' }}
+          </span>
+        </div>
+        <div class="metric-value-container">
+          <span class="metric-value">{{ metrics.cpuFan ?? '--' }}</span>
+          <span class="metric-unit">RPM</span>
+        </div>
+        <el-progress :percentage="metrics.cpuFan ? Math.min(Math.round(metrics.cpuFan/60), 100) : 0"
+          color="#409EFF" :stroke-width="4" :show-text="false" class="metric-progress" />
+        <div class="metric-trend">
+          <span v-for="(v,i) in cpuFanSpark" :key="i" class="spark-bar"
+            :style="{ height: Math.max(2, v/6000*20)+'px', background: '#409EFF' }"></span>
+        </div>
+      </el-card>
+    </el-col>
+    <el-col :span="6">
+      <el-card shadow="hover" class="metric-card">
+        <div class="metric-header">
+          <el-icon :size="18"><CircleCheck /></el-icon>
+          <span class="metric-label">GPU 风扇</span>
+          <span class="metric-badge" :class="metrics.gpuFan ? 'badge-green' : 'badge-gray'">
+            {{ metrics.gpuFan ? '运转中' : '待机' }}
+          </span>
+        </div>
+        <div class="metric-value-container">
+          <span class="metric-value">{{ metrics.gpuFan ?? '--' }}</span>
+          <span class="metric-unit">RPM</span>
+        </div>
+        <el-progress :percentage="metrics.gpuFan ? Math.min(Math.round(metrics.gpuFan/60), 100) : 0"
+          color="#67C23A" :stroke-width="4" :show-text="false" class="metric-progress" />
+        <div class="metric-trend">
+          <span v-for="(v,i) in gpuFanSpark" :key="i" class="spark-bar"
+            :style="{ height: Math.max(2, v/6000*20)+'px', background: '#67C23A' }"></span>
+        </div>
+      </el-card>
+    </el-col>
+  </el-row>
+
+  <!-- 快捷调节 -->
+  <el-card class="quick-card" shadow="hover">
+    <div class="quick-row">
+      <div class="quick-block">
+        <div class="quick-label"><span>⚙ 运行模式</span></div>
+        <el-radio-group v-model="mode" size="default">
+          <el-radio-button v-for="opt in modeOptions" :key="opt.value" :label="opt.value">
+            {{ opt.label }}
+          </el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="quick-block stretch">
+        <div class="quick-label">
+          <span>☁ 强度调节</span>
+          <el-tag size="small" effect="plain" type="primary">{{ intensity }}%</el-tag>
+        </div>
+        <el-slider v-model="intensity" :min="0" :max="100" :step="1"
+          :marks="{ 0: '静音', 50: '均衡', 100: '性能' }" />
+      </div>
+      <div class="quick-actions">
+        <el-button type="primary" @click="applyQuickMode" :loading="isLoading">⚡ 快速应用</el-button>
+        <el-button type="success" @click="applyCustomCurve" :loading="isLoading">✎ 自定义曲线</el-button>
+        <!-- 恒速控件：选择一个固定风速（%），并在 CPU 温度 < 80°C 时生效；可设置滞回（恢复阈） -->
+        <div style="display:flex;align-items:center;gap:8px;padding-left:6px">
+          <el-input-number v-model="constSpeed" :min="0" :max="100" :step="1" size="small" controls-position="right" />
+          <el-button type="warning" @click="applyConstantSpeed" :loading="isLoading">🛑 恒速</el-button>
+          <div style="display:flex;flex-direction:column;align-items:flex-start;margin-left:8px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <el-tooltip content="启用恒速时的恢复滞回，单位：°C" placement="top">
+                <span class="quick-label" style="font-size:11px;color:var(--text-secondary)">滞回</span>
+              </el-tooltip>
+              <el-input-number v-model="constHysteresis" :min="0" :max="10" :step="0.5" size="small" controls-position="right" />
+            </div>
+              <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+                <div style="display:flex;flex-direction:column;align-items:flex-start">
+                  <span style="font-size:11px;color:var(--text-secondary)">触发确认</span>
+                  <el-input-number v-model="alertConfig.cpu_actions.confirm_times" :min="1" :max="10" :step="1" size="small" controls-position="right" />
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-start">
+                  <span style="font-size:11px;color:var(--text-secondary)">恢复确认</span>
+                  <el-input-number v-model="recoveryConfirmCount" :min="1" :max="10" :step="1" size="small" controls-position="right" />
+               </div>
+              <div style="margin-left:8px">
+                <el-tag size="small" effect="plain" type="warning">恢复阈: {{ constModeRecoveryTemp ?? '--' }}°C</el-tag>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </el-card>
+
+  <el-card class="quick-card" shadow="hover">
+    <div class="quick-row">
+      <div class="quick-block" style="min-width:260px">
+        <div class="quick-label"><span>混合策略</span></div>
+        <el-select v-model="controlConfig.strategy" size="small" style="width:100%">
+          <el-option label="独立策略（CPU/GPU 各自曲线）" value="independent" />
+          <el-option label="多传感器取最大（Mix Max）" value="mix_max" />
+          <el-option label="CPU 主导双风扇" value="cpu_only" />
+          <el-option label="GPU 主导双风扇" value="gpu_only" />
+        </el-select>
+      </div>
+      <div class="quick-block" style="min-width:280px">
+        <div class="quick-label"><span>斜率与极静音</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <el-input-number v-model="controlConfig.ramp_up_step" :min="1" :max="40" size="small" controls-position="right" />
+          <el-input-number v-model="controlConfig.ramp_down_step" :min="1" :max="30" size="small" controls-position="right" />
+          <el-input-number v-model="controlConfig.min_speed" :min="0" :max="60" size="small" controls-position="right" />
+        </div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+          <el-switch v-model="controlConfig.zero_rpm_enabled" inline-prompt active-text="零转" inactive-text="常转" />
+          <el-input-number v-model="controlConfig.zero_rpm_threshold" :min="30" :max="70" size="small" controls-position="right" />
+        </div>
+      </div>
+      <div class="quick-block" style="min-width:320px">
+        <div class="quick-label"><span>温度告警（可分别设置）</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <el-input-number v-model="alertConfig.cpu_threshold" :min="50" :max="110" size="small" controls-position="right" />
+          <el-input-number v-model="alertConfig.gpu_threshold" :min="50" :max="110" size="small" controls-position="right" />
+          <el-input-number v-model="alertConfig.recover_delta" :min="1" :max="10" size="small" controls-position="right" />
+        </div>
+        <div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap">
+          <el-checkbox v-model="alertConfig.cpu_actions.popup">CPU 弹窗</el-checkbox>
+          <el-checkbox v-model="alertConfig.cpu_actions.sound">CPU 声音</el-checkbox>
+          <el-checkbox v-model="alertConfig.cpu_actions.log">CPU 记录</el-checkbox>
+          <el-checkbox v-model="alertConfig.cpu_actions.force_shutdown">CPU 强制保护</el-checkbox>
+          <el-input-number v-model="alertConfig.cpu_actions.confirm_times" :min="1" :max="10" size="small" controls-position="right" />
+        </div>
+        <div style="margin-top:6px;display:flex;gap:12px;flex-wrap:wrap">
+          <el-checkbox v-model="alertConfig.gpu_actions.popup">GPU 弹窗</el-checkbox>
+          <el-checkbox v-model="alertConfig.gpu_actions.sound">GPU 声音</el-checkbox>
+          <el-checkbox v-model="alertConfig.gpu_actions.log">GPU 记录</el-checkbox>
+          <el-checkbox v-model="alertConfig.gpu_actions.force_shutdown">GPU 强制保护</el-checkbox>
+          <el-input-number v-model="alertConfig.gpu_actions.confirm_times" :min="1" :max="10" size="small" controls-position="right" />
+        </div>
+      </div>
+      <div class="quick-block" style="min-width:260px">
+        <div class="quick-label"><span>一键场景联动</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <el-button size="small" @click="applyScenario('office')">办公</el-button>
+          <el-button size="small" @click="applyScenario('gaming')">游戏</el-button>
+          <el-button size="small" @click="applyScenario('creator')">创作</el-button>
+          <el-button size="small" @click="applyScenario('battery')">省电</el-button>
+        </div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <el-switch v-model="batteryMode" inline-prompt active-text="电池模式" inactive-text="交流模式" @change="onPowerModeChange" />
+          <el-tag size="small" :type="batteryMode ? 'warning' : 'success'">
+            {{ batteryMode ? '当前: 电池优先' : '当前: 性能优先' }}
+          </el-tag>
+        </div>
+      </div>
+      <div class="quick-block" style="min-width:300px">
+        <div class="quick-label"><span>采样 / 配置档案 / 日志导出</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <el-input-number v-model="monitorConfig.sample_interval_ms" :min="500" :max="60000" :step="100" size="small" controls-position="right" />
+          <el-switch v-model="monitorConfig.log_enabled" inline-prompt active-text="记录" inactive-text="不记" />
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <el-input v-model="profileName" size="small" placeholder="新配置名称（如 office）" style="width:180px" />
+          <el-button size="small" type="primary" @click="saveProfile">保存档案</el-button>
+          <el-button size="small" @click="refreshProfiles">刷新</el-button>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <el-select v-model="selectedProfile" size="small" placeholder="选择档案" style="width:180px">
+            <el-option v-for="p in profileOptions" :key="p" :label="p" :value="p" />
+          </el-select>
+          <el-button size="small" type="success" @click="loadProfile">加载档案</el-button>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <el-input v-model="exportPath" size="small" placeholder="日志导出路径，例如 C:\\temp\\fan.csv" style="width:260px" />
+          <el-button size="small" type="warning" @click="exportMonitorLog">导出 CSV</el-button>
+        </div>
+      </div>
+    </div>
+  </el-card>
+
+  <!-- 图表区（高级模式） -->
+  <el-row v-show="advancedVisible" :gutter="12" class="charts-container">
+    <el-col :span="12">
+      <el-card shadow="hover" class="chart-card">
+        <template #header>
+          <div class="chart-header">
+            <el-icon :size="18" color="#409EFF"><TrendCharts /></el-icon>
+            <div>
+              <span class="chart-title">CPU 风扇曲线</span>
+              <p class="chart-subtitle">拖动节点调整温度-转速映射</p>
+            </div>
+            <el-tag size="small" type="primary" style="margin-left:auto">当前 {{ metrics.cpuTemp ?? '--' }}°C</el-tag>
+          </div>
+        </template>
+        <div class="chart-wrapper"><canvas ref="leftFanChart"></canvas></div>
+      </el-card>
+      <el-card shadow="hover" class="chart-card" style="margin-top:12px">
+        <template #header>
+          <div class="chart-header">
+            <el-icon :size="18" color="#67C23A"><TrendCharts /></el-icon>
+            <div>
+              <span class="chart-title">GPU 风扇曲线</span>
+              <p class="chart-subtitle">拖动节点调整温度-转速映射</p>
+            </div>
+            <el-tag size="small" type="success" style="margin-left:auto">当前 {{ metrics.gpuTemp ?? '--' }}°C</el-tag>
+          </div>
+        </template>
+        <div class="chart-wrapper"><canvas ref="rightFanChart"></canvas></div>
+      </el-card>
+    </el-col>
+    <el-col :span="12">
+      <el-card shadow="hover" class="chart-card">
+        <template #header>
+          <div class="chart-header">
+            <el-icon :size="18" color="#E6A23C"><DataLine /></el-icon>
+            <div>
+              <span class="chart-title">风扇转速历史</span>
+              <p class="chart-subtitle">实时转速变化（最近 60 秒）</p>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <el-tag size="small" type="primary">CPU {{ metrics.cpuFan ?? 0 }} RPM</el-tag>
+              <el-tag size="small" type="success">GPU {{ metrics.gpuFan ?? 0 }} RPM</el-tag>
+            </div>
+          </div>
+        </template>
+        <div class="chart-wrapper"><canvas ref="speedChart"></canvas></div>
+      </el-card>
+      <el-card shadow="hover" class="chart-card" style="margin-top:12px">
+        <template #header>
+          <div class="chart-header">
+            <el-icon :size="18" color="#F56C6C"><DataLine /></el-icon>
+            <div>
+              <span class="chart-title">温度历史</span>
+              <p class="chart-subtitle">实时温度变化（最近 60 秒）</p>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              <el-tag size="small" type="danger">CPU {{ metrics.cpuTemp ?? 0 }}°C</el-tag>
+              <el-tag size="small" type="warning">GPU {{ metrics.gpuTemp ?? 0 }}°C</el-tag>
+            </div>
+          </div>
+        </template>
+        <div class="chart-wrapper"><canvas ref="tempChart"></canvas></div>
+      </el-card>
+    </el-col>
+  </el-row>
+
+  <!-- 控制按钮 -->
+  <div class="controls">
+    <el-button :type="isRunning ? 'danger' : 'primary'" size="large"
+      @click="toggleFanControl" :loading="isLoading" class="main-control-btn">
+      <el-icon><component :is="isRunning ? VideoPauseIcon : VideoPlayIcon" /></el-icon>
+      {{ isRunning ? '停止控制' : '启动控制' }}
+    </el-button>
+    <el-divider direction="vertical" style="height:36px" />
+    <el-button size="large" @click="loadConfig" :loading="isLoading">⬇ 加载配置</el-button>
+    <el-button size="large" @click="saveConfig" :loading="isLoading">⬆ 保存配置</el-button>
+  </div>
+
+</div>`,
+            setup() {
+                // Guard Tauri event listen — when opened in a normal browser `window.__TAURI__` may be undefined
+                const listen = window.__TAURI__?.event?.listen
+                    ? window.__TAURI__.event.listen.bind(window.__TAURI__.event)
+                    : async (_evt, _handler) => {
+                        console.warn('Tauri event.listen is not available in this environment (running in browser preview)');
+                        // Return a dummy unlisten function for compatibility
+                        return () => {};
+                    }
+
+                // ─── Icons ────────────────────────────────────────────────────
+                const SunnyIcon      = ElementPlusIconsVue.Sunny
+                const MoonIcon       = ElementPlusIconsVue.Moon
+                const VideoPlayIcon  = ElementPlusIconsVue.VideoPlay
+                const VideoPauseIcon = ElementPlusIconsVue.VideoPause
+
+                // ─── State ────────────────────────────────────────────────────
+                const isRunning        = ref(false)
+                const isLoading        = ref(false)
+                const autostartEnabled = ref(false)
+                const isDarkMode       = ref(false)
+
+                const fanStatus    = reactive({ type: 'info',    text: '风扇待机'   })
+                const configStatus = reactive({ type: 'info',    text: '配置未加载' })
+                const metrics      = reactive({ cpuTemp: null, gpuTemp: null, cpuFan: null, gpuFan: null })
+
+                // sparkline 历史
+                const cpuTempSpark = ref(Array(SPARK_LEN).fill(0))
+                const gpuTempSpark = ref(Array(SPARK_LEN).fill(0))
+                const cpuFanSpark  = ref(Array(SPARK_LEN).fill(0))
+                const gpuFanSpark  = ref(Array(SPARK_LEN).fill(0))
+
+                // 恒速模式活动标志
+                const constModeActive = ref(false)
+                // 紧急降温标志（当温度超限时触发的临时全速降温模式）
+                const emergencyCooling = ref(false)
+                // 恒温模式目标温度（启用恒速时记录的温度，用于恢复条件）
+                const constModeTargetTemp = ref(null)
+                // 恒速恢复阈值（启用恒速时记录: 启用温度 - 滞回）
+                const constModeRecoveryTemp = ref(null)
+                // 恒速恢复滞回（°C），默认 2°C，可在 UI 调整
+                const constHysteresis = ref(2)
+                // 紧急触发/恢复确认次数（连续读数确认以防抖动）
+                const recoveryConfirmCount = ref(2)  // 需要连续 n 次 <= recoveryThreshold 才恢复
+                // 计数器（在 updateMetrics 中更新）
+                const consecutiveHighCount = ref(0)
+                const consecutiveLowCount = ref(0)
+                // 防止并发处理开关导致重复 invoke 的轻量锁
+                const handlingLock = ref(false)
+
+                // 快捷模式
+                const mode      = ref('standard')
+                const intensity = ref(50)
+                const advancedVisible = ref(true)
+                const modeOptions = [
+                    { label: '安静', value: 'silent' },
+                    { label: '标准', value: 'standard' },
+                    { label: '性能', value: 'performance' },
+                    { label: '全速', value: 'fullspeed' }
+                ]
+
+                const modeToPreset = {
+                    silent: 'silent',
+                    standard: 'standard',
+                    performance: 'performance',
+                    fullspeed: 'fullspeed'
+                }
+
+                const profileName = ref('')
+                const selectedProfile = ref('')
+                const profileOptions = ref([])
+                const exportPath = ref('')
+                const batteryMode = ref(false)
+
+                const controlConfig = reactive({
+                    strategy: 'independent',
+                    preset: 'custom',
+                    ramp_up_step: 10,
+                    ramp_down_step: 6,
+                    min_speed: 20,
+                    zero_rpm_enabled: false,
+                    zero_rpm_threshold: 45
+                })
+
+                const alertConfig = reactive({
+                    cpu_threshold: 90,
+                    gpu_threshold: 90,
+                    recover_delta: 3,
+                    cpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 },
+                    gpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 }
+                })
+
+                const monitorConfig = reactive({
+                    sample_interval_ms: 2500,
+                    log_enabled: false
+                })
+
+                const scenarioPresets = {
+                    office: {
+                        mode: 'silent',
+                        intensity: 35,
+                        control: {
+                            strategy: 'independent',
+                            preset: 'silent',
+                            ramp_up_step: 8,
+                            ramp_down_step: 6,
+                            min_speed: 20,
+                            zero_rpm_enabled: true,
+                            zero_rpm_threshold: 45
+                        },
+                        monitor: { sample_interval_ms: 3000, log_enabled: false },
+                        alerts: {
+                            cpu_threshold: 90,
+                            gpu_threshold: 92,
+                            recover_delta: 3,
+                            cpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 },
+                            gpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 }
+                        }
+                    },
+                    standard: {
+                        mode: 'standard',
+                        intensity: 52,
+                        control: {
+                            strategy: 'independent',
+                            preset: 'standard',
+                            ramp_up_step: 12,
+                            ramp_down_step: 7,
+                            min_speed: 22,
+                            zero_rpm_enabled: false,
+                            zero_rpm_threshold: 45
+                        },
+                        monitor: { sample_interval_ms: 2200, log_enabled: false },
+                        alerts: {
+                            cpu_threshold: 90,
+                            gpu_threshold: 90,
+                            recover_delta: 3,
+                            cpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 },
+                            gpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 }
+                        }
+                    },
+                    gaming: {
+                        mode: 'performance',
+                        intensity: 78,
+                        control: {
+                            strategy: 'mix_max',
+                            preset: 'performance',
+                            ramp_up_step: 18,
+                            ramp_down_step: 8,
+                            min_speed: 24,
+                            zero_rpm_enabled: false,
+                            zero_rpm_threshold: 45
+                        },
+                        monitor: { sample_interval_ms: 1200, log_enabled: true },
+                        alerts: {
+                            cpu_threshold: 92,
+                            gpu_threshold: 90,
+                            recover_delta: 4,
+                            cpu_actions: { popup: true, sound: true, log: true, force_shutdown: false, confirm_times: 2 },
+                            gpu_actions: { popup: true, sound: true, log: true, force_shutdown: false, confirm_times: 2 }
+                        }
+                    },
+                    creator: {
+                        mode: 'standard',
+                        intensity: 60,
+                        control: {
+                            strategy: 'mix_max',
+                            preset: 'standard',
+                            ramp_up_step: 14,
+                            ramp_down_step: 7,
+                            min_speed: 22,
+                            zero_rpm_enabled: false,
+                            zero_rpm_threshold: 45
+                        },
+                        monitor: { sample_interval_ms: 1800, log_enabled: true },
+                        alerts: {
+                            cpu_threshold: 90,
+                            gpu_threshold: 90,
+                            recover_delta: 3,
+                            cpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 },
+                            gpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 }
+                        }
+                    },
+                    battery: {
+                        mode: 'silent',
+                        intensity: 28,
+                        control: {
+                            strategy: 'independent',
+                            preset: 'silent',
+                            ramp_up_step: 7,
+                            ramp_down_step: 7,
+                            min_speed: 18,
+                            zero_rpm_enabled: true,
+                            zero_rpm_threshold: 46
+                        },
+                        monitor: { sample_interval_ms: 3500, log_enabled: false },
+                        alerts: {
+                            cpu_threshold: 88,
+                            gpu_threshold: 90,
+                            recover_delta: 3,
+                            cpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 },
+                            gpu_actions: { popup: true, sound: false, log: true, force_shutdown: false, confirm_times: 2 }
+                        }
+                    }
+                }
+
+                const isOverheat = computed(() => (
+                    (metrics.cpuTemp ?? 0) >= Number(alertConfig.cpu_threshold ?? 90)
+                    || (metrics.gpuTemp ?? 0) >= Number(alertConfig.gpu_threshold ?? 90)
+                ))
+
+                // canvas refs
+                const leftFanChart  = ref(null)
+                const rightFanChart = ref(null)
+                const speedChart    = ref(null)
+                const tempChart     = ref(null)
+                let leftFanChartInst  = null
+                let rightFanChartInst = null
+                let speedChartInst    = null
+                let tempChartInst     = null
+
+                // ─── Helpers ──────────────────────────────────────────────────
+                const isTauriReady = () => !!(window.__TAURI__?.core)
+
+                const getTempColor = (t) => {
+                    if (!t) return '#C0C4CC'
+                    if (t > 85) return '#F56C6C'
+                    if (t > 70) return '#E6A23C'
+                    return '#67C23A'
+                }
+                const getTempLevel = (t) => {
+                    if (!t) return 'badge-gray'
+                    if (t > 85) return 'badge-red'
+                    if (t > 70) return 'badge-orange'
+                    return 'badge-green'
+                }
+                const getTempLevelText = (t) => {
+                    if (!t) return '未知'
+                    if (t > 85) return '过热'
+                    if (t > 70) return '偏高'
+                    return '正常'
+                }
+                const pushSpark = (arr, val) => {
+                    arr.push(val ?? 0)
+                    if (arr.length > SPARK_LEN) arr.shift()
+                }
+
+                const clampNum = (v, min, max, fallback) => {
+                    const n = Number(v)
+                    if (!Number.isFinite(n)) return fallback
+                    return Math.max(min, Math.min(max, n))
+                }
+
+                const buildPayloadWithConfig = (base) => ({
+                    ...base,
+                    control: {
+                        strategy: controlConfig.strategy,
+                        preset: controlConfig.preset,
+                        ramp_up_step: clampNum(controlConfig.ramp_up_step, 1, 40, 10),
+                        ramp_down_step: clampNum(controlConfig.ramp_down_step, 1, 30, 6),
+                        min_speed: clampNum(controlConfig.min_speed, 0, 60, 20),
+                        zero_rpm_enabled: !!controlConfig.zero_rpm_enabled,
+                        zero_rpm_threshold: clampNum(controlConfig.zero_rpm_threshold, 30, 70, 45)
+                    },
+                    alerts: {
+                        cpu: {
+                            threshold: clampNum(alertConfig.cpu_threshold, 50, 110, 90),
+                            actions: {
+                                popup: !!alertConfig.cpu_actions.popup,
+                                sound: !!alertConfig.cpu_actions.sound,
+                                log: !!alertConfig.cpu_actions.log,
+                                force_shutdown: !!alertConfig.cpu_actions.force_shutdown,
+                                confirm_times: clampNum(alertConfig.cpu_actions.confirm_times, 1, 10, 2)
+                            }
+                        },
+                        gpu: {
+                            threshold: clampNum(alertConfig.gpu_threshold, 50, 110, 90),
+                            actions: {
+                                popup: !!alertConfig.gpu_actions.popup,
+                                sound: !!alertConfig.gpu_actions.sound,
+                                log: !!alertConfig.gpu_actions.log,
+                                force_shutdown: !!alertConfig.gpu_actions.force_shutdown,
+                                confirm_times: clampNum(alertConfig.gpu_actions.confirm_times, 1, 10, 2)
+                            }
+                        },
+                        recover_delta: clampNum(alertConfig.recover_delta, 1, 10, 3)
+                    },
+                    monitor: {
+                        sample_interval_ms: clampNum(monitorConfig.sample_interval_ms, 500, 60000, 2500),
+                        log_enabled: !!monitorConfig.log_enabled
+                    }
+                })
+
+                const applyConfigToState = (fanData = {}) => {
+                    const ctl = fanData.control || {}
+                    controlConfig.strategy = ctl.strategy || 'independent'
+                    controlConfig.preset = ctl.preset || 'custom'
+                    mode.value = Object.values(modeToPreset).includes(controlConfig.preset)
+                        ? controlConfig.preset
+                        : 'standard'
+                    controlConfig.ramp_up_step = clampNum(ctl.ramp_up_step, 1, 40, 10)
+                    controlConfig.ramp_down_step = clampNum(ctl.ramp_down_step, 1, 30, 6)
+                    controlConfig.min_speed = clampNum(ctl.min_speed, 0, 60, 20)
+                    controlConfig.zero_rpm_enabled = !!ctl.zero_rpm_enabled
+                    controlConfig.zero_rpm_threshold = clampNum(ctl.zero_rpm_threshold, 30, 70, 45)
+
+                    const cpu = fanData.alerts?.cpu || {}
+                    const gpu = fanData.alerts?.gpu || {}
+                    alertConfig.cpu_threshold = clampNum(cpu.threshold, 50, 110, 90)
+                    alertConfig.gpu_threshold = clampNum(gpu.threshold, 50, 110, 90)
+                    alertConfig.recover_delta = clampNum(fanData.alerts?.recover_delta, 1, 10, 3)
+
+                    const cpuActions = cpu.actions || {}
+                    const gpuActions = gpu.actions || {}
+                    alertConfig.cpu_actions.popup = cpuActions.popup !== undefined ? !!cpuActions.popup : true
+                    alertConfig.cpu_actions.sound = !!cpuActions.sound
+                    alertConfig.cpu_actions.log = cpuActions.log !== undefined ? !!cpuActions.log : true
+                    alertConfig.cpu_actions.force_shutdown = !!cpuActions.force_shutdown
+                    alertConfig.cpu_actions.confirm_times = clampNum(cpuActions.confirm_times, 1, 10, 2)
+
+                    alertConfig.gpu_actions.popup = gpuActions.popup !== undefined ? !!gpuActions.popup : true
+                    alertConfig.gpu_actions.sound = !!gpuActions.sound
+                    alertConfig.gpu_actions.log = gpuActions.log !== undefined ? !!gpuActions.log : true
+                    alertConfig.gpu_actions.force_shutdown = !!gpuActions.force_shutdown
+                    alertConfig.gpu_actions.confirm_times = clampNum(gpuActions.confirm_times, 1, 10, 2)
+
+                    monitorConfig.sample_interval_ms = clampNum(fanData.monitor?.sample_interval_ms, 500, 60000, 2500)
+                    monitorConfig.log_enabled = !!fanData.monitor?.log_enabled
+                }
+
+                const applyScenario = async (name) => {
+                    const scenario = scenarioPresets[name]
+                    if (!scenario) {
+                        ElMessage.warning('未知场景')
+                        return
+                    }
+
+                    mode.value = scenario.mode
+                    intensity.value = scenario.intensity
+
+                    Object.assign(controlConfig, JSON.parse(JSON.stringify(scenario.control)))
+                    alertConfig.cpu_threshold = scenario.alerts.cpu_threshold
+                    alertConfig.gpu_threshold = scenario.alerts.gpu_threshold
+                    alertConfig.recover_delta = scenario.alerts.recover_delta
+                    alertConfig.cpu_actions = JSON.parse(JSON.stringify(scenario.alerts.cpu_actions))
+                    alertConfig.gpu_actions = JSON.parse(JSON.stringify(scenario.alerts.gpu_actions))
+                    monitorConfig.sample_interval_ms = scenario.monitor.sample_interval_ms
+                    monitorConfig.log_enabled = scenario.monitor.log_enabled
+
+                    try {
+                        await applyQuickMode()
+                        ElMessage.success(`已应用场景：${name}`)
+                    } catch (_e) {
+                        // applyQuickMode 内部已提示
+                    }
+                }
+
+                const onPowerModeChange = async (isBattery) => {
+                    if (isBattery) {
+                        await applyScenario('battery')
+                    } else {
+                        await applyScenario('standard')
+                    }
+                }
+
+                // ─── Chart init ───────────────────────────────────────────────
+                const initCharts = () => {
+                    if (!leftFanChart.value || !rightFanChart.value || !speedChart.value || !tempChart.value) {
+                        console.error('Canvas 元素未找到'); return
+                    }
+
+                    const mkScales = (xTitle, yTitle, yMin, yMax) => ({
+                        x: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { color: '#606266', font: { size: 11 } },
+                             title: { display: true, text: xTitle, color: '#909399', font: { size: 11 } } },
+                        y: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { color: '#606266', font: { size: 11 } },
+                             title: { display: true, text: yTitle, color: '#909399', font: { size: 11 } },
+                             min: yMin, max: yMax }
+                    })
+                    const baseOpts = (xT, yT, yMin, yMax, extra = {}) => ({
+                        responsive: true, maintainAspectRatio: false, animation: false,
+                        plugins: {
+                            legend: { display: true, labels: { color: '#606266', font: { size: 11 }, boxWidth: 12 } },
+                            tooltip: { backgroundColor: 'rgba(48,49,51,0.9)', titleColor: '#fff', bodyColor: '#ddd' },
+                            ...extra
+                        },
+                        scales: mkScales(xT, yT, yMin, yMax)
+                    })
+
+                    const curveLabels   = Array.from({ length: 15 }, (_, i) => (i + 30) + Math.round(i * 4))
+                    const historyLabels = Array.from({ length: 21 }, (_, i) => i * 3 + 's')
+                    const dragPlugin    = { dragData: { round: 0, showTooltip: true, onDrag: (_e, _di, _idx, v) => v >= 0 && v <= 100 } }
+
+                    leftFanChartInst = new Chart(leftFanChart.value, {
+                        type: 'line',
+                        data: { labels: curveLabels, datasets: [{
+                            label: 'CPU 风扇速度 (%)', data: Array(15).fill(50),
+                            borderColor: '#409EFF', backgroundColor: 'rgba(64,158,255,0.08)',
+                            borderWidth: 2.5, pointRadius: 5, pointHoverRadius: 8,
+                            pointBackgroundColor: '#409EFF', tension: 0.3, fill: true
+                        }] },
+                        options: baseOpts('温度 (°C)', '风扇速度 (%)', 0, 100, dragPlugin)
+                    })
+
+                    rightFanChartInst = new Chart(rightFanChart.value, {
+                        type: 'line',
+                        data: { labels: curveLabels, datasets: [{
+                            label: 'GPU 风扇速度 (%)', data: Array(15).fill(50),
+                            borderColor: '#67C23A', backgroundColor: 'rgba(103,194,58,0.08)',
+                            borderWidth: 2.5, pointRadius: 5, pointHoverRadius: 8,
+                            pointBackgroundColor: '#67C23A', tension: 0.3, fill: true
+                        }] },
+                        options: baseOpts('温度 (°C)', '风扇速度 (%)', 0, 100, dragPlugin)
+                    })
+
+                    speedChartInst = new Chart(speedChart.value, {
+                        type: 'line',
+                        data: { labels: historyLabels, datasets: [
+                            { label: 'CPU 风扇', data: Array(21).fill(0), borderColor: '#409EFF', backgroundColor: 'rgba(64,158,255,0.08)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true },
+                            { label: 'GPU 风扇', data: Array(21).fill(0), borderColor: '#67C23A', backgroundColor: 'rgba(103,194,58,0.08)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }
+                        ] },
+                        options: baseOpts('时间', '转速 (RPM)', 0, 6000)
+                    })
+
+                    tempChartInst = new Chart(tempChart.value, {
+                        type: 'line',
+                        data: { labels: historyLabels, datasets: [
+                            { label: 'CPU 温度', data: Array(21).fill(0), borderColor: '#F56C6C', backgroundColor: 'rgba(245,108,108,0.08)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true },
+                            { label: 'GPU 温度', data: Array(21).fill(0), borderColor: '#E6A23C', backgroundColor: 'rgba(230,162,60,0.08)',  borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true }
+                        ] },
+                        options: baseOpts('时间', '温度 (°C)', 0, 100)
+                    })
+                }
+
+                // ─── 平滑升速帮助：将风扇逐步拉升到目标百分比序列以实现平缓降温（在紧急降温场景使用）
+                const rampFanToPercent = async (percentSteps = [80, 90, 100], stepDelayMs = 700) => {
+                    if (!leftFanChartInst || !rightFanChartInst) {
+                        console.warn('rampFanToPercent: charts not ready'); return
+                    }
+                    const labelsL = leftFanChartInst.data.labels || []
+                    const labelsR = rightFanChartInst.data.labels || []
+                    for (const p of percentSteps) {
+                        // clamp
+                        const pct = Math.max(0, Math.min(100, Number(p)))
+                        const left = labelsL.map(t => ({ temperature: Number(t), speed: pct }))
+                        const right = labelsR.map(t => ({ temperature: Number(t), speed: pct }))
+                        // update visuals
+                        leftFanChartInst.data.datasets[0].data  = left.map(x => x.speed)
+                        rightFanChartInst.data.datasets[0].data = right.map(x => x.speed)
+                        leftFanChartInst.update('none')
+                        rightFanChartInst.update('none')
+                        const fanData = buildPayloadWithConfig({ left_fan: left, right_fan: right })
+                        if (isTauriReady()) {
+                            try {
+                                // try using a lightweight start command (backend should handle re-apply)
+                                await window.__TAURI__.core.invoke('start_fan_control', { fanData })
+                            } catch (e) { console.warn('ramp invoke failed', e) }
+                        } else {
+                            console.warn('rampFanToPercent (dev): simulated to', pct)
+                        }
+                        await new Promise(r => setTimeout(r, Number(stepDelayMs) || 700))
+                    }
+                }
+
+                // ─── Update metrics ───────────────────────────────────────────
+                const updateMetrics = async (d) => {
+                     metrics.cpuTemp = d.left_temp
+                     metrics.gpuTemp = d.right_temp
+                     metrics.cpuFan  = d.left_fan_speed
+                     metrics.gpuFan  = d.right_fan_speed
+
+                     pushSpark(cpuTempSpark.value, d.left_temp)
+                     pushSpark(gpuTempSpark.value, d.right_temp)
+                     pushSpark(cpuFanSpark.value,  d.left_fan_speed)
+                     pushSpark(gpuFanSpark.value,  d.right_fan_speed)
+
+                     if (speedChartInst) {
+                         speedChartInst.data.datasets[0].data.push(d.left_fan_speed);  speedChartInst.data.datasets[0].data.shift()
+                         speedChartInst.data.datasets[1].data.push(d.right_fan_speed); speedChartInst.data.datasets[1].data.shift()
+                         speedChartInst.update('none')
+                     }
+                     if (tempChartInst) {
+                         tempChartInst.data.datasets[0].data.push(d.left_temp);  tempChartInst.data.datasets[0].data.shift()
+                         tempChartInst.data.datasets[1].data.push(d.right_temp); tempChartInst.data.datasets[1].data.shift()
+                         tempChartInst.update('none')
+                     }
+
+                      // 恒速/恒温保护逻辑（增加防抖）：当恒速模式正在运行且 CPU 温度超过紧急阈值（80°C）时，要求连续 N 次确认再触发紧急降温；触发时采用渐进平滑拉升
+                      const emergencyThreshold = 80
+                      if (constModeActive.value && metrics.cpuTemp != null) {
+                          if (metrics.cpuTemp >= emergencyThreshold) {
+                              consecutiveHighCount.value += 1
+                          } else {
+                              consecutiveHighCount.value = 0
+                              // 温度正常时重置紧急降温标志，允许恢复正常控制
+                              if (emergencyCooling.value) {
+                                  emergencyCooling.value = false
+                              }
+                          }
+
+                          if (consecutiveHighCount.value >= Number(alertConfig.cpu_actions.confirm_times ?? 2)) {
+                              // 达到连续确认数才真正触发 emergency
+                              if (!emergencyCooling.value && !handlingLock.value) {
+                                  handlingLock.value = true
+                                  emergencyCooling.value = true
+                                  try {
+                                      // 使用平滑 ramp（从当前 constSpeed 或曲线当前值逐步上升到 100%）
+                                      const currentSpeed = Number(constSpeed.value ?? 60)
+                                      const steps = []
+                                      if (currentSpeed < 75) steps.push(Math.min(80, currentSpeed + 20))
+                                      if (currentSpeed < 90) steps.push(90)
+                                      steps.push(100)
+                                      // call ramp helper
+                                      await rampFanToPercent(steps, 700)
+                                      isRunning.value = true
+                                      fanStatus.type = 'danger'; fanStatus.text = '恒速（降温模式）- 风扇升速中'
+                                      ElMessage.warning('CPU 温度持续高位，进入降温模式：风扇逐步加速以降低温度')
+                                  } catch (e) { console.warn('切换到降温全速失败', e) }
+                                  finally { handlingLock.value = false; consecutiveHighCount.value = 0 }
+                              }
+                          }
+
+                          // 恒速模式自动退出机制：如果温度低于恢复阈值且持续确认次数达标，则自动切换回曲线模式
+                          if (!emergencyCooling.value && constModeRecoveryTemp.value != null && metrics.cpuTemp != null) {
+                              if (metrics.cpuTemp <= constModeRecoveryTemp.value) {
+                                  consecutiveLowCount.value += 1
+                              } else {
+                                  consecutiveLowCount.value = 0
+                              }
+
+                              if (consecutiveLowCount.value >= Number(recoveryConfirmCount.value ?? 2)) {
+                                  if (!handlingLock.value && constModeActive.value) {
+                                      handlingLock.value = true
+                                      try {
+                                          // 自动切换回曲线模式
+                                          const fanData = getFanDataFromChart()
+                                          await restartControl(fanData)
+                                          constModeActive.value = false
+                                          constModeRecoveryTemp.value = null
+                                          consecutiveLowCount.value = 0
+                                          ElMessage.success('温度已恢复正常，已自动切换回曲线控制模式')
+                                      } catch (e) { console.warn('切换回曲线模式失败', e) }
+                                      finally { handlingLock.value = false; consecutiveLowCount.value = 0 }
+                                  }
+                              }
+                          }
+                      }
+
+                      // 如果当前处于紧急降温状态并且温度已回落到恢复阈值（启用温度 - 滞回），使用连续 n 次确认后恢复恒速
+                      if (emergencyCooling.value && constModeRecoveryTemp.value != null && metrics.cpuTemp != null) {
+                          if (metrics.cpuTemp <= constModeRecoveryTemp.value) {
+                              consecutiveLowCount.value += 1
+                          } else {
+                              consecutiveLowCount.value = 0
+                          }
+
+                          if (consecutiveLowCount.value >= Number(recoveryConfirmCount.value ?? 2)) {
+                              if (!handlingLock.value) {
+                                  handlingLock.value = true
+                                  try {
+                                      // 恢复到恒速（使用 constSpeed）
+                                      const speedVal = Number(constSpeed.value ?? 60)
+                                      const labelsL = leftFanChartInst.data.labels
+                                      const labelsR = rightFanChartInst.data.labels
+                                      const left = labelsL.map(t => ({ temperature: Number(t), speed: speedVal }))
+                                      const right = labelsR.map(t => ({ temperature: Number(t), speed: speedVal }))
+                                       const fanData = buildPayloadWithConfig({ left_fan: left, right_fan: right })
+                                      if (isTauriReady()) {
+                                          await window.__TAURI__.core.invoke('start_fan_control', { fanData })
+                                      } else {
+                                          console.warn('Tauri not ready: simulated restore of constant fanData (dev preview)')
+                                      }
+                                      emergencyCooling.value = false
+                                      constModeActive.value = true
+                                      isRunning.value = true
+                                      fanStatus.type = 'success'; fanStatus.text = '恒速已恢复'
+                                      ElMessage.success('CPU 温度已回落至恢复阈值，恒速模式已恢复')
+                                  } catch (e) { console.warn('恢复恒速模式失败', e) }
+                                  finally { handlingLock.value = false; consecutiveLowCount.value = 0 }
+                              }
+                          }
+                      }
+
+                         if (consecutiveHighCount.value >= Number(alertConfig.cpu_actions.confirm_times ?? 2)) {
+                             // 达到连续确认数才真正触发 emergency
+                             if (!emergencyCooling.value && !handlingLock.value) {
+                                 handlingLock.value = true
+                                 emergencyCooling.value = true
+                                 try {
+                                     // 使用平滑 ramp（从当前 constSpeed 或曲线当前值逐步上升到 100%）
+                                     const currentSpeed = Number(constSpeed.value ?? 60)
+                                     const steps = []
+                                     if (currentSpeed < 75) steps.push(Math.min(80, currentSpeed + 20))
+                                     if (currentSpeed < 90) steps.push(90)
+                                     steps.push(100)
+                                     // call ramp helper
+                                     await rampFanToPercent(steps, 700)
+                                     isRunning.value = true
+                                     fanStatus.type = 'danger'; fanStatus.text = '恒速（降温模式）- 风扇升速中'
+                                     ElMessage.warning('CPU 温度持续高位，进入降温模式：风扇逐步加速以降低温度')
+                                 } catch (e) { console.warn('切换到降温全速失败', e) }
+                                 finally { handlingLock.value = false; consecutiveHighCount.value = 0 }
+                             }
+                         }
+                     }
+
+                     // 如果当前处于紧急降温状态并且温度已回落到恢复阈值（启用温度 - 滞回），使用连续 n 次确认后恢复恒速曲线
+                     if (emergencyCooling.value && constModeRecoveryTemp.value != null && metrics.cpuTemp != null) {
+                         if (metrics.cpuTemp <= constModeRecoveryTemp.value) {
+                             consecutiveLowCount.value += 1
+                         } else {
+                             consecutiveLowCount.value = 0
+                         }
+
+                         if (consecutiveLowCount.value >= Number(recoveryConfirmCount.value ?? 2)) {
+                             if (!handlingLock.value) {
+                                 handlingLock.value = true
+                                 try {
+                                     // 恢复到恒速（使用 constSpeed）
+                                     const speedVal = Number(constSpeed.value ?? 60)
+                                     const labelsL = leftFanChartInst.data.labels
+                                     const labelsR = rightFanChartInst.data.labels
+                                     const left = labelsL.map(t => ({ temperature: Number(t), speed: speedVal }))
+                                     const right = labelsR.map(t => ({ temperature: Number(t), speed: speedVal }))
+                                      const fanData = buildPayloadWithConfig({ left_fan: left, right_fan: right })
+                                     if (isTauriReady()) {
+                                         await window.__TAURI__.core.invoke('start_fan_control', { fanData })
+                                     } else {
+                                         console.warn('Tauri not ready: simulated restore of constant fanData (dev preview)')
+                                     }
+                                     emergencyCooling.value = false
+                                     constModeActive.value = true
+                                     isRunning.value = true
+                                     fanStatus.type = 'success'; fanStatus.text = '恒速已恢复'
+                                     ElMessage.success('CPU 温度已回落至恢复阈值，恒速模式已恢复')
+                                 } catch (e) { console.warn('恢复恒速模式失败', e) }
+                                 finally { handlingLock.value = false; consecutiveLowCount.value = 0 }
+                             }
+                         }
+                     }
+                 }
+
+                // ─── Curve builder ────────────────────────────────────────────
+                const buildCurve = (labels, selectedMode, k) => {
+                    const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
+                    return labels.map(t => {
+                        const temp    = Number(t)
+                        const base    = ((temp - 30) / 60) * 70 + 20
+                        const shaped  = clamp(base, 10, 95)
+                        let offset = 0, slope = 1
+                        if (selectedMode === 'silent')      { offset = -14; slope = 0.82 }
+                        else if (selectedMode === 'standard')    { offset = -4;  slope = 1.0  }
+                        else if (selectedMode === 'performance') { offset = 8;   slope = 1.12 }
+                        else if (selectedMode === 'fullspeed') { return { temperature: temp, speed: 100 } }
+                        else { offset = -4; slope = 1.0 }
+                        const htg   = clamp((temp - 60) / 30, 0, 1)
+                        const speed = clamp(shaped * slope + offset + k*18 + k*20*htg, 10, 100)
+                        return { temperature: temp, speed: Math.round(speed) }
+                    })
+                }
+
+                const getFanDataFromChart = () => buildPayloadWithConfig({
+                    left_fan:  leftFanChartInst.data.labels.map((t, i) => ({ temperature: t, speed: leftFanChartInst.data.datasets[0].data[i] })),
+                    right_fan: rightFanChartInst.data.labels.map((t, i) => ({ temperature: t, speed: rightFanChartInst.data.datasets[0].data[i] }))
+                })
+
+                const restartControl = async (fanData) => {
+                    if (isRunning.value) {
+                        await window.__TAURI__.core.invoke('stop_fan_control')
+                        await new Promise(r => setTimeout(r, 500))
+                    }
+                    await window.__TAURI__.core.invoke('start_fan_control', { fanData })
+                    isRunning.value = true
+                    fanStatus.type = 'success'; fanStatus.text = '风扇运行中'
+                }
+
+                // ─── Quick apply ──────────────────────────────────────────────
+                const applyQuickMode = async () => {
+                    if (!leftFanChartInst) { ElMessage.warning('图表未初始化'); return }
+                    isLoading.value = true
+                    try {
+                        const k = intensity.value / 100
+                        const fanData = buildPayloadWithConfig({
+                            left_fan:  buildCurve(leftFanChartInst.data.labels,  mode.value, k),
+                            right_fan: buildCurve(rightFanChartInst.data.labels, mode.value, k)
+                        })
+                        controlConfig.preset = modeToPreset[mode.value] || 'custom'
+                        leftFanChartInst.data.datasets[0].data  = fanData.left_fan.map(p => p.speed)
+                        rightFanChartInst.data.datasets[0].data = fanData.right_fan.map(p => p.speed)
+                        leftFanChartInst.update(); rightFanChartInst.update()
+                        await restartControl(fanData)
+                        // 取消恒速模式标志并清除任何紧急降温状态
+                        constModeActive.value = false
+                        emergencyCooling.value = false
+                        ElMessage.success('快捷模式已应用')
+                    } catch (e) { ElMessage.error('应用失败: ' + e) }
+                    finally { isLoading.value = false }
+                }
+
+                const applyCustomCurve = async () => {
+                    if (!leftFanChartInst) { ElMessage.warning('图表未初始化'); return }
+                    isLoading.value = true
+                    try {
+                        await restartControl(getFanDataFromChart())
+                        // 取消恒速模式标志并清除任何紧急降温状态
+                        constModeActive.value = false
+                        emergencyCooling.value = false
+                        ElMessage.success('自定义曲线已应用')
+                    } catch (e) { ElMessage.error('应用失败: ' + e) }
+                    finally { isLoading.value = false }
+                }
+
+                // ─── 恒速应用：将左右风扇设为相同的固定百分比曲线，仅当 CPU 温度 < 80°C 时生效
+                const constSpeed = ref(60)
+                const applyConstantSpeed = async () => {
+                     if (!leftFanChartInst || !rightFanChartInst) { ElMessage.warning('图表未初始化'); return }
+                     if (isLoading.value) { return }
+                     // 阻止在温度未知或高温（>=80°C）时启用恒速
+                     if (metrics.cpuTemp == null || metrics.cpuTemp >= 80) {
+                         ElMessage.error('当前 CPU 温度未知或过高（>= 80°C），恒速模式不可启用')
+                         return
+                     }
+                     const speedVal = Number(constSpeed.value ?? 60)
+                     isLoading.value = true
+                     try {
+                         // Build a constant fanData array using existing chart labels
+                         const labelsL = leftFanChartInst.data.labels
+                         const labelsR = rightFanChartInst.data.labels
+                         const left = labelsL.map(t => ({ temperature: Number(t), speed: speedVal }))
+                         const right = labelsR.map(t => ({ temperature: Number(t), speed: speedVal }))
+
+                          const fanData = buildPayloadWithConfig({ left_fan: left, right_fan: right })
+
+                         // Update chart visuals to reflect the constant curve
+                         leftFanChartInst.data.datasets[0].data  = left.map(p => p.speed)
+                         rightFanChartInst.data.datasets[0].data = right.map(p => p.speed)
+                         leftFanChartInst.update(); rightFanChartInst.update()
+
+                         await restartControl(fanData)
+                         constModeActive.value = true
+                         // 记录启用时的温度与恢复阈值（启用温度 - 滞回）
+                         constModeTargetTemp.value = metrics.cpuTemp ?? null
+                         constModeRecoveryTemp.value = (metrics.cpuTemp != null) ? (metrics.cpuTemp - Number(constHysteresis.value ?? 2)) : null
+                         // 退出任何紧急降温标志
+                         emergencyCooling.value = false
+                         ElMessage.success(`恒速模式已启用：${speedVal}%（在 CPU < 80°C 生效）`)
+                     } catch (e) {
+                         ElMessage.error('启用恒速失败: ' + e)
+                     } finally { isLoading.value = false }
+                 }
+
+                // ─── Toggle control ───────────────────────────────────────────
+                const toggleFanControl = async () => {
+                    isLoading.value = true
+                    try {
+                        if (!isRunning.value) {
+                            await window.__TAURI__.core.invoke('start_fan_control', { fanData: getFanDataFromChart() })
+                            isRunning.value = true; fanStatus.type = 'success'; fanStatus.text = '风扇运行中'
+                            // 取消恒速模式标志（手动启动或重启后以曲线为准）
+                            constModeActive.value = false
+                            ElMessage.success('风扇控制已启动')
+                        } else {
+                            await window.__TAURI__.core.invoke('stop_fan_control')
+                            isRunning.value = false; fanStatus.type = 'info'; fanStatus.text = '风扇待机'
+                            // 取消恒速模式标志
+                            constModeActive.value = false
+                            emergencyCooling.value = false
+                            ElMessage.info('风扇控制已停止')
+                        }
+                    } catch (e) { ElMessage.error('操作失败: ' + e) }
+                    finally { isLoading.value = false }
+                }
+
+                // ─── Config ───────────────────────────────────────────────────
+                const loadConfig = async () => {
+                    isLoading.value = true
+                    try {
+                        const fanData = await window.__TAURI__.core.invoke('load_fan_config')
+                        leftFanChartInst.data.datasets[0].data  = fanData.left_fan.map(p => p.speed)
+                        rightFanChartInst.data.datasets[0].data = fanData.right_fan.map(p => p.speed)
+                        leftFanChartInst.update(); rightFanChartInst.update()
+                        applyConfigToState(fanData)
+                        configStatus.type = 'success'; configStatus.text = '配置已加载'
+                        ElMessage.success('配置加载成功')
+                    } catch (e) {
+                        configStatus.type = 'warning'; configStatus.text = '配置加载失败'
+                        ElMessage.warning('配置加载失败: ' + e)
+                    } finally { isLoading.value = false }
+                }
+
+                const saveConfig = async () => {
+                    isLoading.value = true
+                    try {
+                        await window.__TAURI__.core.invoke('save_fan_config', { fanData: getFanDataFromChart() })
+                        configStatus.type = 'success'; configStatus.text = '配置已保存'
+                        ElMessage.success('配置保存成功')
+                        setTimeout(() => { configStatus.text = '配置已加载' }, 3000)
+                    } catch (e) { ElMessage.error('配置保存失败: ' + e) }
+                    finally { isLoading.value = false }
+                }
+
+                const saveProfile = async () => {
+                    const name = (profileName.value || '').trim()
+                    if (!name) {
+                        ElMessage.warning('请先输入配置名称')
+                        return
+                    }
+                    isLoading.value = true
+                    try {
+                        await window.__TAURI__.core.invoke('save_fan_profile', {
+                            profile: name,
+                            fanData: getFanDataFromChart()
+                        })
+                        selectedProfile.value = name
+                        await refreshProfiles()
+                        ElMessage.success('配置档案已保存')
+                    } catch (e) {
+                        ElMessage.error('保存档案失败: ' + e)
+                    } finally {
+                        isLoading.value = false
+                    }
+                }
+
+                const loadProfile = async () => {
+                    const name = (selectedProfile.value || '').trim()
+                    if (!name) {
+                        ElMessage.warning('请先选择配置档案')
+                        return
+                    }
+                    isLoading.value = true
+                    try {
+                        const fanData = await window.__TAURI__.core.invoke('load_fan_profile', { profile: name })
+                        leftFanChartInst.data.datasets[0].data = fanData.left_fan.map(p => p.speed)
+                        rightFanChartInst.data.datasets[0].data = fanData.right_fan.map(p => p.speed)
+                        leftFanChartInst.update(); rightFanChartInst.update()
+                        applyConfigToState(fanData)
+                        configStatus.type = 'success'; configStatus.text = `已加载档案: ${name}`
+                        ElMessage.success('配置档案加载成功')
+                    } catch (e) {
+                        ElMessage.error('加载档案失败: ' + e)
+                    } finally {
+                        isLoading.value = false
+                    }
+                }
+
+                const refreshProfiles = async () => {
+                    try {
+                        const names = await window.__TAURI__.core.invoke('list_fan_profiles')
+                        profileOptions.value = Array.isArray(names) ? names : []
+                    } catch (e) {
+                        console.warn('读取配置档案失败', e)
+                    }
+                }
+
+                const exportMonitorLog = async () => {
+                    const path = (exportPath.value || '').trim()
+                    if (!path) {
+                        ElMessage.warning('请填写导出路径')
+                        return
+                    }
+                    isLoading.value = true
+                    try {
+                        const out = await window.__TAURI__.core.invoke('export_monitor_log_csv', {
+                            destinationPath: path
+                        })
+                        ElMessage.success('日志导出成功: ' + out)
+                    } catch (e) {
+                        ElMessage.error('日志导出失败: ' + e)
+                    } finally {
+                        isLoading.value = false
+                    }
+                }
+
+                // ─── Autostart ────────────────────────────────────────────────
+                const refreshAutostartStatus = async () => {
+                    try {
+                        const enabled = await window.__TAURI__.core.invoke('autostart_status')
+                        autostartEnabled.value = !!enabled; return enabled
+                    } catch (e) { console.error('开机自启检查失败:', e); return null }
+                }
+
+                const toggleAutostart = async () => {
+                    if (!isTauriReady()) {
+                        ElMessage.error('Tauri 未就绪'); autostartEnabled.value = !autostartEnabled.value; return
+                    }
+                    try {
+                        const enabled = await window.__TAURI__.core.invoke('autostart_set', { enable: autostartEnabled.value })
+                        autostartEnabled.value = !!enabled
+                        ElMessage.success(enabled ? '开机自启已启用' : '开机自启已禁用')
+                    } catch (e) {
+                        autostartEnabled.value = !autostartEnabled.value
+                        ElMessage.error('设置失败: ' + e)
+                    }
+                }
+
+                // ─── Setup listener ───────────────────────────────────────────
+                let unlistenFanSpeed = null
+                let unlistenTempAlert = null
+                const setupListener = async () => {
+                    if (!isTauriReady()) {
+                        console.warn('Tauri core not available; skipping fan speeds listener setup')
+                        return
+                    }
+                    await window.__TAURI__.core.invoke('get_fan_speeds')
+                    unlistenFanSpeed = await listen('get-fan-speeds', (event) => updateMetrics(event.payload))
+                    unlistenTempAlert = await listen('temp-alert', (event) => {
+                        const payload = event?.payload || {}
+                        const sensor = payload.sensor || '传感器'
+                        const temp = payload.temperature ?? '--'
+                        ElMessage.warning(`${sensor} 温度告警：${temp}°C`)
+                    })
+                }
+
+                // ─── Lifecycle ────────────────────────────────────────────────
+                  onMounted(async () => {
+                      const loadingOverlay = document.getElementById('loading-overlay');
+                      if (loadingOverlay) {
+                          loadingOverlay.style.display = 'none';
+                      }
+                      await nextTick()
+                      initCharts()
+                     await setupListener()
+                     await refreshProfiles()
+                     // Expose a small developer helper to simulate temperature changes in browser preview
+                     try {
+                         window.__simulateTemps = async (sequence = [60,82,78,65], intervalMs = 1200) => {
+                             for (const t of sequence) {
+                                 // emulate payload shape used by updateMetrics
+                                 await updateMetrics({ left_temp: t, right_temp: t, left_fan_speed: metrics.cpuFan ?? 0, right_fan_speed: metrics.gpuFan ?? 0 })
+                                 await new Promise(r => setTimeout(r, intervalMs))
+                             }
+                         }
+                     } catch (e) { /* noop */ }
+                     if (isTauriReady()) {
+                         try {
+                             const enabled = await refreshAutostartStatus()
+                             if (enabled) {
+                                 await loadConfig()
+                                 setTimeout(() => toggleFanControl(), 1000)
+                             }
+                         } catch (e) { console.error('开机自启检查失败:', e) }
+                     }
+                 })
+
+                onUnmounted(() => {
+                    if (typeof unlistenFanSpeed === 'function') unlistenFanSpeed()
+                    if (typeof unlistenTempAlert === 'function') unlistenTempAlert()
+                    [leftFanChartInst, rightFanChartInst, speedChartInst, tempChartInst].forEach(c => c?.destroy())
+                })
+
+                return {
+                    isRunning, isLoading, autostartEnabled, isDarkMode,
+                    fanStatus, configStatus, metrics, isOverheat,
+                    cpuTempSpark, gpuTempSpark, cpuFanSpark, gpuFanSpark,
+                    mode, intensity, advancedVisible, modeOptions,
+                    controlConfig, alertConfig, monitorConfig,
+                    profileName, selectedProfile, profileOptions, exportPath, batteryMode,
+                    leftFanChart, rightFanChart, speedChart, tempChart,
+                    getTempColor, getTempLevel, getTempLevelText,
+                    applyQuickMode, applyCustomCurve, applyConstantSpeed, constSpeed,
+                    toggleFanControl, loadConfig, saveConfig, toggleAutostart,
+                    saveProfile, loadProfile, refreshProfiles, exportMonitorLog,
+                    applyScenario, onPowerModeChange,
+                    // hysteresis and confirmation controls
+                    constHysteresis, constModeRecoveryTemp, recoveryConfirmCount,
+                    // expose emergency cooling flag for debugging/tests
+                    emergencyCooling,
+                    SunnyIcon, MoonIcon, VideoPlayIcon, VideoPauseIcon
+                }
+            }
+        }
+
+        const app = createApp(App)
+        app.use(ElementPlus)
+        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+            app.component(key, component)
+        }
+        app.mount('#app')
+        // prevent default context menu / select / drag to keep original UX without inline attributes
+        try {
+            document.addEventListener('contextmenu', (e) => e.preventDefault())
+            document.addEventListener('selectstart', (e) => e.preventDefault())
+            document.addEventListener('dragstart', (e) => e.preventDefault())
+        } catch (e) { /* noop in older environments */ }
+
+        // 全局错误处理
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error('全局错误:', { message, source, lineno, colno, error });
+            document.getElementById('loading-overlay').style.display = 'none';
+            document.getElementById('error-overlay').classList.add('show');
+            document.getElementById('error-message').textContent = [
+                '消息: ' + message,
+                '文件: ' + source,
+                '行号: ' + lineno + ':' + colno,
+                '错误: ' + (error ? error.stack : 'N/A')
+            ].join('\n');
+        };
+
+        // 处理未捕获的 Promise 错误
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('未捕获的 Promise 错误:', event.reason);
+            document.getElementById('loading-overlay').style.display = 'none';
+            document.getElementById('error-overlay').classList.add('show');
+            document.getElementById('error-message').textContent = [
+                '未捕获的 Promise 错误: ' + (event.reason || 'Unknown'),
+                '堆栈: ' + (event.reason && event.reason.stack ? event.reason.stack : 'N/A')
+            ].join('\n');
+            event.preventDefault();
+        });
+
+        console.log('🚀 脚本加载完成，准备初始化应用...');
+    </script>
+    <!-- ===== NEW SCRIPT END ===== -->
+ </body>
+ </html>

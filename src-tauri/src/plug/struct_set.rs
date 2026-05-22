@@ -13,7 +13,7 @@ use crate::plug::constants::{
 };
 use crate::plug::diagnostics::app_log;
 #[cfg(windows)]
-use crate::win_plug::wmi::{get_model, wmi_init, wmi_set};
+use crate::plug::wmi_client::WmiClient;
 #[cfg(unix)]
 use crate::{
     linux_plug::sysfs::{get_kernel_version, get_model_id, get_sys, set_sys},
@@ -22,17 +22,23 @@ use crate::{
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
-#[cfg(windows)]
-use windows::{
-    core::BSTR,
-    Win32::System::Wmi::{IWbemClassObject, IWbemServices},
-};
 
-pub static R_TDP_GPU1: &str = "0x000001000000072d";
-pub static R_TDP_GPU2: &str = "0x000001000000072e";
-pub static R_TDP_CPU1: &str = "0x0000010000000783";
-pub static R_TDP_CPU2: &str = "0x0000010000000784";
-pub static R_TDP_TCC: &str = "0x0000010000000786";
+#[cfg(windows)]
+const EC_ADDR_AP_OEM: u16 = 0x0741;
+#[cfg(windows)]
+const EC_ADDR_TDP_GPU_PL1: u16 = 0x072d;
+#[cfg(windows)]
+const EC_ADDR_TDP_GPU_PL2: u16 = 0x072e;
+#[cfg(windows)]
+const EC_ADDR_TDP_CPU_PL1: u16 = 0x0783;
+#[cfg(windows)]
+const EC_ADDR_TDP_CPU_PL2: u16 = 0x0784;
+#[cfg(windows)]
+const EC_ADDR_TDP_TCC: u16 = 0x0786;
+#[cfg(windows)]
+const EC_ENABLE_MANUAL_CTRL: i64 = 0x01;
+#[cfg(windows)]
+const EC_COMM_FAILURE: i64 = 0xFEFEFEFE;
 pub static R_FAN_L1: &str = "0x000001000000046C";
 pub static R_FAN_L2: &str = "0x000001000000046D";
 pub static R_FAN_R1: &str = "0x0000010000000464";
@@ -55,7 +61,7 @@ pub static W_DC_LED_COLOR_N: &str = "0x00000000000A07EB";
 // RGB: i64 = 标准RGB值 / 51 * 10
 #[cfg(windows)]
 lazy_static! {
-    pub static ref MODEL_ID: i64 = get_model();
+    pub static ref MODEL_ID: i64 = WmiClient::global().send_get_model();
 }
 #[cfg(unix)]
 lazy_static! {
@@ -74,6 +80,24 @@ lazy_static! {
 // 全局硬件写入互斥锁，防止并发写入 WMI/sysfs 导致的不稳定或错误
 lazy_static! {
     pub static ref HW_ACCESS_LOCK: Mutex<()> = Mutex::new(());
+}
+
+#[cfg(windows)]
+pub(crate) fn ec_read_payload(address: u16) -> String {
+    format!("0x000001000000{:04X}", address)
+}
+
+#[cfg(windows)]
+pub(crate) fn ec_write_payload(address: u16, value: i64) -> Option<String> {
+    if !(0..=0xFF).contains(&value) {
+        return None;
+    }
+    Some(format!("0x0000000000{:02X}{:04X}", value, address))
+}
+
+#[cfg(windows)]
+fn ec_call_failed(value: i64) -> bool {
+    value < 0 || value == EC_COMM_FAILURE
 }
 
 /// 带重试的锁获取：用于关键操作（风扇模式切换、TDP 写入等）
@@ -98,7 +122,7 @@ fn acquire_hw_lock(max_attempts: u32) -> Option<std::sync::MutexGuard<'static, (
     None
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct FanPoint {
     pub temperature: i32,
     pub speed: i32,
@@ -111,6 +135,7 @@ pub enum FanControlMode {
     Office,
     Gaming,
     Performance,
+    Benchmark,
     Custom,
 }
 
@@ -121,6 +146,7 @@ impl FanControlMode {
             FanControlMode::Office => "office",
             FanControlMode::Gaming => "gaming",
             FanControlMode::Performance => "performance",
+            FanControlMode::Benchmark => "benchmark",
             FanControlMode::Custom => "custom",
         }
     }
@@ -131,6 +157,7 @@ impl FanControlMode {
             "office" | "standard" | "balanced" => FanControlMode::Office,
             "gaming" | "game" => FanControlMode::Gaming,
             "performance" | "fullspeed" => FanControlMode::Performance,
+            "benchmark" | "bench" | "stress" => FanControlMode::Benchmark,
             "custom" => FanControlMode::Custom,
             _ => FanControlMode::Office,
         }
@@ -291,7 +318,7 @@ impl Default for MonitoringConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct FanData {
     #[serde(default)]
     pub left_fan: Vec<FanPoint>,
@@ -303,18 +330,6 @@ pub struct FanData {
     pub alerts: AlertConfig,
     #[serde(default)]
     pub monitor: MonitoringConfig,
-}
-
-impl Default for FanData {
-    fn default() -> Self {
-        Self {
-            left_fan: vec![],
-            right_fan: vec![],
-            control: FanControlPolicy::default(),
-            alerts: AlertConfig::default(),
-            monitor: MonitoringConfig::default(),
-        }
-    }
 }
 
 fn default_strategy() -> String {
@@ -420,9 +435,17 @@ pub struct FanSpeeds {
     pub right_fan_speed: i64,
     pub left_temp: i64,
     pub right_temp: i64,
+    pub cpu_power_limit_w: Option<i64>,
+    pub cpu_power_short_w: Option<i64>,
+    pub gpu_power_limit_w: Option<i64>,
+    pub gpu_power_short_w: Option<i64>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[expect(
+    clippy::upper_case_acronyms,
+    reason = "The frontend command payload already uses this public type name."
+)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TDP {
     pub cpu1: i64,
     pub cpu2: i64,
@@ -431,6 +454,10 @@ pub struct TDP {
     pub tcc: i64,
 }
 
+#[expect(
+    clippy::upper_case_acronyms,
+    reason = "The frontend command payload already uses this public type name."
+)]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RGB {
     pub(crate) r: i64,
@@ -448,6 +475,10 @@ pub struct FanActorSnapshot {
     pub gpu_temp: Option<i64>,
     pub cpu_fan_rpm: Option<i64>,
     pub gpu_fan_rpm: Option<i64>,
+    pub cpu_power_limit_w: Option<i64>,
+    pub cpu_power_short_w: Option<i64>,
+    pub gpu_power_limit_w: Option<i64>,
+    pub gpu_power_short_w: Option<i64>,
     pub sampled_at_ms: Option<u128>,
     pub dropped_samples: u64,
     pub hung: bool,
@@ -465,6 +496,10 @@ impl Default for FanActorSnapshot {
             gpu_temp: None,
             cpu_fan_rpm: None,
             gpu_fan_rpm: None,
+            cpu_power_limit_w: None,
+            cpu_power_short_w: None,
+            gpu_power_limit_w: None,
+            gpu_power_short_w: None,
             sampled_at_ms: None,
             dropped_samples: 0,
             hung: false,
@@ -478,116 +513,59 @@ pub struct FanControlState;
 
 #[cfg(windows)]
 pub struct ApiFan {
-    in_cls: IWbemClassObject,
-    svc: IWbemServices,
-    obj_path: BSTR,
-    method_name: BSTR,
     r_fan_l1: &'static str,
     r_fan_l2: &'static str,
     r_fan_r1: &'static str,
     r_fan_r2: &'static str,
 }
 
-
 #[cfg(windows)]
 impl ApiFan {
-    pub fn init() -> Self {
-        let (in_cls, svc, obj_path, method_name) = wmi_init();
+    pub fn try_init() -> Result<Self, String> {
         let (r_fan_l1, r_fan_l2, r_fan_r1, r_fan_r2) = if *MODEL_ID == 1 {
             (R_FAN_L1, R_FAN_L2, R_FAN_R1, R_FAN_R2)
         } else {
             (R_FAN_R1, R_FAN_R2, R_FAN_L1, R_FAN_L2)
         };
-        ApiFan {
-            in_cls,
-            svc,
-            obj_path,
-            method_name,
+        Ok(ApiFan {
             r_fan_l1,
             r_fan_l2,
             r_fan_r1,
             r_fan_r2,
-        }
+        })
     }
     pub fn get_cpu_temp(&self) -> i64 {
         // 与 GPU 保持一致，取低 8 位才是摄氏度温度值，避免高位脏数据触发过温保护
-        wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            R_TEMP_L,
-        ) & 0xFF
+        WmiClient::global().send_wmi_set(R_TEMP_L) & 0xFF
     }
     pub fn get_gpu_temp(&self) -> i64 {
-        wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            R_TEMP_R,
-        ) & 0xFF
+        WmiClient::global().send_wmi_set(R_TEMP_R) & 0xFF
     }
     pub fn get_fan_l(&self) -> i64 {
-        (wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            &self.r_fan_l1,
-        ) & 0xFF)
-            << 8
-            | wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                &self.r_fan_l2,
-            )
+        (WmiClient::global().send_wmi_set(self.r_fan_l1) & 0xFF) << 8
+            | WmiClient::global().send_wmi_set(self.r_fan_l2)
     }
     pub fn get_fan_r(&self) -> i64 {
-        (wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            &self.r_fan_r1,
-        ) & 0xFF)
-            << 8
-            | wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                &self.r_fan_r2,
-            )
+        (WmiClient::global().send_wmi_set(self.r_fan_r1) & 0xFF) << 8
+            | WmiClient::global().send_wmi_set(self.r_fan_r2)
     }
     fn _set_fan(&self, l: i64, r: i64) {
         // 风扇写入使用 try_lock：在极端并发场景下跳过一次写入影响可控
         let _guard = match HW_ACCESS_LOCK.try_lock() {
             Ok(g) => g,
             Err(_) => {
-                println!("⚠️ HW_ACCESS_LOCK 争用（风扇写入），跳过本次写入 L={} R={}", l, r);
+                println!(
+                    "⚠️ HW_ACCESS_LOCK 争用（风扇写入），跳过本次写入 L={} R={}",
+                    l, r
+                );
                 return;
             }
         };
         // l/r 范围 0-200，用 {:02X} 保证2位十六进制（00-C8），超出时 clamp 保护
         let l = l.clamp(0, 200);
         let r = r.clamp(0, 200);
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}1809", l).as_str(),
-        );
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}1804", r).as_str(),
-        );
+        let _ = WmiClient::global().send_wmi_set(&format!("0x0000000000{:02X}1809", l));
+        let _ = WmiClient::global().send_wmi_set(&format!("0x0000000000{:02X}1804", r));
     }
     /// MAX speed 200
     pub fn set_fan(&self, l: i64, r: i64) -> bool {
@@ -603,13 +581,7 @@ impl ApiFan {
             println!("❌ set_fan_auto 失败：无法获取硬件锁");
             return false;
         };
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            W_FAN_RESET,
-        );
+        let _ = WmiClient::global().send_wmi_set(W_FAN_RESET);
         true
     }
     pub fn set_fan_control(&self) -> bool {
@@ -618,33 +590,15 @@ impl ApiFan {
             return false;
         };
         if *MODEL_ID == 1 {
-            wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                W_FAN_AC71H_TURBO,
-            );
+            WmiClient::global().send_wmi_set(W_FAN_AC71H_TURBO);
         } else {
-            wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                W_FAN_KC71F_TURBO,
-            );
+            WmiClient::global().send_wmi_set(W_FAN_KC71F_TURBO);
         }
         true
     }
     /// 1 - control, 2 - auto
     pub fn get_fan_mode(&self) -> i64 {
-        let out = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            R_FAN_MODE,
-        );
+        let out = WmiClient::global().send_wmi_set(R_FAN_MODE);
         println!("MODE: {}", out);
         if out <= 0 {
             return 1;
@@ -684,140 +638,218 @@ impl ApiFan {
             } else {
                 0
             },
+            cpu_power_limit_w: None,
+            cpu_power_short_w: None,
+            gpu_power_limit_w: None,
+            gpu_power_short_w: None,
         }
     }
+
+    fn ec_read_byte(&self, address: u16) -> i64 {
+        let payload = ec_read_payload(address);
+        let value = WmiClient::global().send_wmi_set(&payload);
+        if ec_call_failed(value) {
+            -1
+        } else {
+            value & 0xFF
+        }
+    }
+
+    fn ec_write_byte(&self, address: u16, value: i64) -> i64 {
+        let Some(payload) = ec_write_payload(address, value) else {
+            app_log(
+                "hardware",
+                "warn",
+                "ec.write.invalid_value",
+                format!("address=0x{:04X} value={}", address, value),
+            );
+            return -1;
+        };
+        WmiClient::global().send_wmi_set(&payload)
+    }
+
+    fn ensure_manual_control(&self) -> bool {
+        let current = self.ec_read_byte(EC_ADDR_AP_OEM);
+        if current < 0 {
+            app_log(
+                "hardware",
+                "warn",
+                "ec.manual_control.read_failed",
+                format!("address=0x{:04X}", EC_ADDR_AP_OEM),
+            );
+            return false;
+        }
+
+        if current & EC_ENABLE_MANUAL_CTRL != 0 {
+            return true;
+        }
+
+        let next = current | EC_ENABLE_MANUAL_CTRL;
+        let out = self.ec_write_byte(EC_ADDR_AP_OEM, next);
+        thread::sleep(Duration::from_millis(80));
+        let verified = self.ec_read_byte(EC_ADDR_AP_OEM);
+        let ok = !ec_call_failed(out) && verified & EC_ENABLE_MANUAL_CTRL != 0;
+        app_log(
+            "hardware",
+            if ok { "info" } else { "warn" },
+            "ec.manual_control.enable",
+            format!(
+                "before=0x{:02X} write_out={} verify=0x{:02X} ok={}",
+                current, out, verified, ok
+            ),
+        );
+        ok
+    }
+
     /// (gpu1, gpu2, cpu1, cpu2, tcc)
     pub fn get_tdp(&self) -> (i64, i64, i64, i64, i64) {
         (
-            wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                R_TDP_CPU1,
-            ) & 0xFF,
-            wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                R_TDP_CPU2,
-            ) & 0xFF,
-            wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                R_TDP_GPU1,
-            ) & 0xFF,
-            wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                R_TDP_GPU2,
-            ) & 0xFF,
-            wmi_set(
-                &self.in_cls,
-                &self.svc,
-                &self.obj_path,
-                &self.method_name,
-                R_TDP_TCC,
-            ),
+            self.ec_read_byte(EC_ADDR_TDP_CPU_PL1),
+            self.ec_read_byte(EC_ADDR_TDP_CPU_PL2),
+            self.ec_read_byte(EC_ADDR_TDP_GPU_PL1),
+            self.ec_read_byte(EC_ADDR_TDP_GPU_PL2),
+            self.ec_read_byte(EC_ADDR_TDP_TCC),
         )
     }
     pub fn set_tdp(&self, t: TDP) -> bool {
         let Some(_guard) = acquire_hw_lock(5) else {
-            println!("❌ set_tdp 失败：无法获取硬件锁");
+            println!("set_tdp failed: hardware lock unavailable");
             return false;
         };
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}0783", t.cpu1).as_str(),
-        );
-        thread::sleep(Duration::from_secs_f64(0.5));
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}0784", t.cpu2).as_str(),
-        );
-        thread::sleep(Duration::from_secs_f64(0.5));
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}072d", t.gpu1).as_str(),
-        );
-        thread::sleep(Duration::from_secs_f64(0.5));
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}072e", t.gpu2).as_str(),
-        );
-        thread::sleep(Duration::from_secs_f64(0.5));
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}0786", t.tcc).as_str(),
-        );
+        if !self.ensure_manual_control() {
+            app_log(
+                "hardware",
+                "warn",
+                "set_tdp.manual_control_failed",
+                format!(
+                    "cpu={}W/{}W gpu={}W/{}W tcc={}",
+                    t.cpu1, t.cpu2, t.gpu1, t.gpu2, t.tcc
+                ),
+            );
+            return false;
+        }
+
+        let cpu1_out = self.ec_write_byte(EC_ADDR_TDP_CPU_PL1, t.cpu1);
+        thread::sleep(Duration::from_millis(500));
+        let cpu2_out = self.ec_write_byte(EC_ADDR_TDP_CPU_PL2, t.cpu2);
+        thread::sleep(Duration::from_millis(500));
+        let gpu1_out = self.ec_write_byte(EC_ADDR_TDP_GPU_PL1, t.gpu1);
+        thread::sleep(Duration::from_millis(500));
+        let gpu2_out = self.ec_write_byte(EC_ADDR_TDP_GPU_PL2, t.gpu2);
+        thread::sleep(Duration::from_millis(500));
+        let tcc_out = self.ec_write_byte(EC_ADDR_TDP_TCC, t.tcc);
         thread::sleep(Duration::from_millis(500));
 
+        if [cpu1_out, cpu2_out, gpu1_out, gpu2_out, tcc_out]
+            .iter()
+            .any(|value| ec_call_failed(*value))
+        {
+            app_log(
+                "hardware",
+                "warn",
+                "set_tdp.wmi_failed",
+                format!(
+                    "cpu1_out={} cpu2_out={} gpu1_out={} gpu2_out={} tcc_out={}",
+                    cpu1_out, cpu2_out, gpu1_out, gpu2_out, tcc_out
+                ),
+            );
+            return false;
+        }
+
         let (read_cpu1, read_cpu2, read_gpu1, read_gpu2, _) = self.get_tdp();
-        let ok = read_cpu1 == t.cpu1
-            && read_cpu2 == t.cpu2
-            && read_gpu1 == t.gpu1
-            && read_gpu2 == t.gpu2;
-        if !ok {
+        let cpu_ok = read_cpu1 == t.cpu1 && read_cpu2 == t.cpu2;
+        let gpu_ok = read_gpu1 == t.gpu1 && read_gpu2 == t.gpu2;
+
+        app_log(
+            "hardware",
+            if cpu_ok && gpu_ok { "info" } else { "warn" },
+            "set_tdp.verify",
+            format!(
+                "want cpu={}W/{}W gpu={}W/{}W got cpu={}W/{}W gpu={}W/{}W cpu_ok={} gpu_ok={}",
+                t.cpu1,
+                t.cpu2,
+                t.gpu1,
+                t.gpu2,
+                read_cpu1,
+                read_cpu2,
+                read_gpu1,
+                read_gpu2,
+                cpu_ok,
+                gpu_ok
+            ),
+        );
+
+        if !cpu_ok {
             println!(
-                "set_tdp verify failed: want cpu={}W/{}W gpu={}W/{}W got cpu={}W/{}W gpu={}W/{}W",
-                t.cpu1, t.cpu2, t.gpu1, t.gpu2, read_cpu1, read_cpu2, read_gpu1, read_gpu2
+                "set_tdp CPU verify failed: want {}W/{}W got {}W/{}W",
+                t.cpu1, t.cpu2, read_cpu1, read_cpu2
             );
         }
-        ok
+        if !gpu_ok {
+            println!(
+                "set_tdp GPU verify failed: want {}W/{}W got {}W/{}W (System might be overriding this)",
+                t.gpu1, t.gpu2, read_gpu1, read_gpu2
+            );
+        }
+
+        cpu_ok
     }
     pub fn set_cpu_tdp(&self, cpu1: i64, cpu2: i64) -> bool {
-        app_log("hardware", "info", "set_cpu_tdp.start", format!("cpu={}W/{}W", cpu1, cpu2));
+        app_log(
+            "hardware",
+            "info",
+            "set_cpu_tdp.start",
+            format!("cpu={}W/{}W", cpu1, cpu2),
+        );
         let Some(_guard) = acquire_hw_lock(5) else {
-            app_log("hardware", "warn", "set_cpu_tdp.lock_failed", format!("cpu={}W/{}W", cpu1, cpu2));
+            app_log(
+                "hardware",
+                "warn",
+                "set_cpu_tdp.lock_failed",
+                format!("cpu={}W/{}W", cpu1, cpu2),
+            );
             println!("set_cpu_tdp failed: hardware lock unavailable");
             return false;
         };
-        let cpu1_out = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}0783", cpu1).as_str(),
-        );
+        if !self.ensure_manual_control() {
+            app_log(
+                "hardware",
+                "warn",
+                "set_cpu_tdp.manual_control_failed",
+                format!("cpu={}W/{}W", cpu1, cpu2),
+            );
+            return false;
+        }
+        let cpu1_out = self.ec_write_byte(EC_ADDR_TDP_CPU_PL1, cpu1);
         thread::sleep(Duration::from_millis(500));
-        let cpu2_out = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            format!("0x0000000000{:02X}0784", cpu2).as_str(),
-        );
+        let cpu2_out = self.ec_write_byte(EC_ADDR_TDP_CPU_PL2, cpu2);
         thread::sleep(Duration::from_millis(500));
 
-        if cpu1_out < 0 || cpu2_out < 0 {
-            app_log("hardware", "warn", "set_cpu_tdp.wmi_failed", format!("cpu1_out={} cpu2_out={}", cpu1_out, cpu2_out));
-            println!("set_cpu_tdp WMI write failed: cpu1_out={} cpu2_out={}", cpu1_out, cpu2_out);
+        if ec_call_failed(cpu1_out) || ec_call_failed(cpu2_out) {
+            app_log(
+                "hardware",
+                "warn",
+                "set_cpu_tdp.wmi_failed",
+                format!("cpu1_out={} cpu2_out={}", cpu1_out, cpu2_out),
+            );
+            println!(
+                "set_cpu_tdp WMI write failed: cpu1_out={} cpu2_out={}",
+                cpu1_out, cpu2_out
+            );
             return false;
         }
 
         let (read_cpu1, read_cpu2, _, _, _) = self.get_tdp();
         let ok = read_cpu1 == cpu1 && read_cpu2 == cpu2;
-        app_log("hardware", if ok { "info" } else { "warn" }, "set_cpu_tdp.verify", format!("want={}W/{}W got={}W/{}W ok={}", cpu1, cpu2, read_cpu1, read_cpu2, ok));
+        app_log(
+            "hardware",
+            if ok { "info" } else { "warn" },
+            "set_cpu_tdp.verify",
+            format!(
+                "want={}W/{}W got={}W/{}W ok={}",
+                cpu1, cpu2, read_cpu1, read_cpu2, ok
+            ),
+        );
         if !ok {
             println!(
                 "set_cpu_tdp verify failed: want={}W/{}W got={}W/{}W",
@@ -831,13 +863,7 @@ impl ApiFan {
             println!("❌ set_ac_led_color_y 失败：无法获取硬件锁");
             return false;
         };
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            W_AC_LED_COLOR_Y,
-        );
+        let _ = WmiClient::global().send_wmi_set(W_AC_LED_COLOR_Y);
         true
     }
     pub fn set_ac_led_color_n(&self) -> bool {
@@ -845,13 +871,7 @@ impl ApiFan {
             println!("❌ set_ac_led_color_n 失败：无法获取硬件锁");
             return false;
         };
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            W_AC_LED_COLOR_N,
-        );
+        let _ = WmiClient::global().send_wmi_set(W_AC_LED_COLOR_N);
         true
     }
     #[allow(dead_code)]
@@ -863,13 +883,7 @@ impl ApiFan {
                 return false;
             }
         };
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            W_DC_LED_COLOR_Y,
-        );
+        let _ = WmiClient::global().send_wmi_set(W_DC_LED_COLOR_Y);
         true
     }
     #[allow(dead_code)]
@@ -881,24 +895,12 @@ impl ApiFan {
                 return false;
             }
         };
-        let _ = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            W_DC_LED_COLOR_N,
-        );
+        let _ = WmiClient::global().send_wmi_set(W_DC_LED_COLOR_N);
         true
     }
     /// 0 - Error, 1 - off, 2 - on
     pub fn get_ac_led_color(&self) -> i64 {
-        let out = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            R_AC_LED_COLOR,
-        );
+        let out = WmiClient::global().send_wmi_set(R_AC_LED_COLOR);
         match out & 0xff {
             2 => 1,
             4 => 1,
@@ -912,13 +914,7 @@ impl ApiFan {
     }
     #[allow(dead_code)]
     pub fn get_dc_led_color(&self) -> i64 {
-        let out = wmi_set(
-            &self.in_cls,
-            &self.svc,
-            &self.obj_path,
-            &self.method_name,
-            R_DC_LED_COLOR,
-        );
+        let out = WmiClient::global().send_wmi_set(R_DC_LED_COLOR);
         match out {
             10 => 1,
             64 => 2,
@@ -947,6 +943,10 @@ pub struct ApiFan {
 
 #[cfg(unix)]
 impl ApiFan {
+    pub fn try_init() -> Result<Self, String> {
+        Ok(Self::init())
+    }
+
     pub fn init() -> Self {
         let (r_fan_l, r_fan_r, w_fan_l, w_fan_r) = if *MODEL_ID == 1 {
             (
@@ -1057,6 +1057,10 @@ impl ApiFan {
             } else {
                 0
             },
+            cpu_power_limit_w: None,
+            cpu_power_short_w: None,
+            gpu_power_limit_w: None,
+            gpu_power_short_w: None,
         }
     }
     pub fn get_tdp(&self) -> (i64, i64, i64, i64, i64) {
@@ -1081,27 +1085,46 @@ impl ApiFan {
             return false;
         }
         let (read_cpu1, read_cpu2, read_gpu1, read_gpu2, _) = self.get_tdp();
-        read_cpu1 == t.cpu1
-            && read_cpu2 == t.cpu2
-            && read_gpu1 == t.gpu1
-            && read_gpu2 == t.gpu2
+        read_cpu1 == t.cpu1 && read_cpu2 == t.cpu2 && read_gpu1 == t.gpu1 && read_gpu2 == t.gpu2
     }
     pub fn set_cpu_tdp(&self, cpu1: i64, cpu2: i64) -> bool {
-        app_log("hardware", "info", "set_cpu_tdp.start", format!("platform=linux cpu={}W/{}W", cpu1, cpu2));
+        app_log(
+            "hardware",
+            "info",
+            "set_cpu_tdp.start",
+            format!("platform=linux cpu={}W/{}W", cpu1, cpu2),
+        );
         let Some(_guard) = acquire_hw_lock(5) else {
-            app_log("hardware", "warn", "set_cpu_tdp.lock_failed", format!("platform=linux cpu={}W/{}W", cpu1, cpu2));
+            app_log(
+                "hardware",
+                "warn",
+                "set_cpu_tdp.lock_failed",
+                format!("platform=linux cpu={}W/{}W", cpu1, cpu2),
+            );
             println!("set_cpu_tdp failed: hardware lock unavailable");
             return false;
         };
-        let writes_ok = set_sys(&self.cpu_pl1, cpu1 * 1000)
-            && set_sys(&self.cpu_pl2, cpu2 * 1000);
+        let writes_ok = set_sys(&self.cpu_pl1, cpu1 * 1000) && set_sys(&self.cpu_pl2, cpu2 * 1000);
         if !writes_ok {
-            app_log("hardware", "warn", "set_cpu_tdp.sysfs_failed", format!("cpu={}W/{}W", cpu1, cpu2));
+            app_log(
+                "hardware",
+                "warn",
+                "set_cpu_tdp.sysfs_failed",
+                format!("cpu={}W/{}W", cpu1, cpu2),
+            );
             return false;
         }
         let (read_cpu1, read_cpu2, _, _, _) = self.get_tdp();
         let ok = read_cpu1 == cpu1 && read_cpu2 == cpu2;
-        app_log("hardware", if ok { "info" } else { "warn" }, "set_cpu_tdp.verify", format!("platform=linux want={}W/{}W got={}W/{}W ok={}", cpu1, cpu2, read_cpu1, read_cpu2, ok));
+        app_log(
+            "hardware",
+            if ok { "info" } else { "warn" },
+            "set_cpu_tdp.verify",
+            format!(
+                "platform=linux want={}W/{}W got={}W/{}W ok={}",
+                cpu1, cpu2, read_cpu1, read_cpu2, ok
+            ),
+        );
         ok
     }
 }

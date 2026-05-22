@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NUCtool</title>
+  <meta name="description" content="NUCtool 风扇、功耗、灯效和厂商服务控制台" />
+  <script src="./assets/chart.js"></script>
+  <style>
+    :root,
+    [data-theme="dark"] {
+      --bg: #020617;
+      --surface: #0f172a;
+      --surface-2: #111c31;
+      --surface-3: #1e293b;
+      --text: #f8fafc;
+      --muted: #b6c2d4;
+      --subtle: #7d8da5;
+      --line: #243247;
+      --accent: #22c55e;
+      --accent-2: #2dd4bf;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      --radius: 8px;
+      color-scheme: dark;
+    }
+
+    [data-theme="light"] {
+      --bg: #eef3f8;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --surface-3: #e9f0f8;
+      --text: #0f172a;
+      --muted: #475569;
+      --subtle: #64748b;
+      --line: #d6e0ec;
+      --shadow: 0 18px 42px rgba(15, 23, 42, 0.10);
+      color-scheme: light;
+    }
+
+    body[data-scenario="silent"] { --accent: #38bdf8; --accent-2: #2dd4bf; }
+    body[data-scenario="office"] { --accent: #22c55e; --accent-2: #2dd4bf; }
+    body[data-scenario="gaming"] { --accent: #f97316; --accent-2: #ef4444; }
+    body[data-scenario="performance"] { --accent: #ef4444; --accent-2: #f97316; }
+    body[data-scenario="benchmark"] { --accent: #facc15; --accent-2: #ef4444; }
+
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select { font: inherit; }
+
+    button {
+      min-height: 42px;
+      padding: 0 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.15;
+      text-align: center;
+      transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+    }
+
+    button:hover {
+      border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+      background: var(--surface-3);
+    }
+
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    .view-page:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .skip-link {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      transform: translateY(-140%);
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: #04111b;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .app-shell {
+      width: min(1180px, calc(100vw - 32px));
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 18px 0 22px;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 12px;
+      z-index: 50;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 92%, transparent);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--line));
+      border-radius: var(--radius);
+      background: rgba(34, 197, 94, 0.10);
+      color: var(--accent);
+      font-weight: 800;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.08;
+      font-weight: 760;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .status-pill,
+    .mini-chip {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--subtle);
+    }
+    .dot[data-state="active"] { background: var(--green); }
+    .dot[data-state="warn"] { background: var(--amber); }
+    .dot[data-state="danger"] { background: var(--red); }
+    .dot[data-state="idle"] { background: var(--subtle); }
+
+    .page-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .nav-item {
+      min-height: 58px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      justify-content: stretch;
+      gap: 10px;
+      padding: 10px 12px;
+      text-align: left;
+    }
+
+    .nav-index {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--surface-3);
+      color: var(--muted);
+      font: 700 13px/1 "Fira Code", "Cascadia Mono", monospace;
+    }
+
+    .nav-title {
+      display: block;
+      font-size: 14px;
+      font-weight: 720;
+    }
+
+    .nav-sub {
+      display: block;
+      margin-top: 3px;
+      color: var(--subtle);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .nav-item.active,
+    .nav-item[aria-selected="true"] {
+      border-color: color-mix(in srgb, var(--accent) 68%, var(--line));
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+    }
+
+    .nav-item.active .nav-index,
+    .nav-item[aria-selected="true"] .nav-index {
+      background: var(--accent);
+      color: #04111b;
+    }
+
+    .alert-strip,
+    .live-strip {
+      display: none;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .view-stage {
+      min-height: 0;
+    }
+
+    .view-page {
+      display: none;
+      gap: 12px;
+      animation: pageIn 180ms ease both;
+    }
+
+    .view-page.active {
+      display: grid;
+    }
+
+    .page-title {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 44px;
+    }
+
+    .page-title h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.15;
+    }
+
+    .page-title p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .grid-4,
+    .grid-3,
+    .grid-2 {
+      display: grid;
+      gap: 12px;
+    }
+
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .panel,
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+    }
+
+    .panel { padding: 15px; }
+
+    .metric {
+      min-height: 112px;
+      padding: 14px;
+      background: var(--surface-2);
+    }
+
+    .metric-label {
+      color: var(--subtle);
+      font-size: 12px;
+    }
+
+    .metric-main {
+      margin-top: 10px;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .metric-value {
+      font-size: 31px;
+      line-height: 1;
+      font-weight: 780;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-unit {
+      color: var(--subtle);
+      font-size: 11px;
+    }
+
+    .thermal-line {
+      margin-top: 13px;
+      height: 5px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .thermal-line span {
+      display: block;
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
+
+    .section-label,
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .section-label { margin-bottom: 12px; }
+
+    .section-label h3,
+    .setting-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 730;
+    }
+
+    .section-badge,
+    .setting-sub,
+    .mode-hint,
+    .power-sub,
+    .scene-reco {
+      color: var(--subtle);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .setting-stack,
+    .power-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .segmented,
+    .button-row,
+    .mode-toggle,
+    .power-segmented {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .scene-btn,
+    .power-btn {
+      flex: 1 1 104px;
+      min-height: 42px;
+      padding: 0 14px;
+    }
+
+    .scene-btn.active,
+    .power-btn.active,
+    .whisper-btn.active,
+    .battery-btn.active {
+      border-color: color-mix(in srgb, var(--accent) 68%, var(--line));
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+      color: var(--text);
+    }
+
+    .scene-title,
+    .power-title {
+      font-size: 14px;
+      font-weight: 720;
+    }
+
+    .scenario-icon { display: none; }
+
+    .primary {
+      border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #04111b;
+      font-weight: 760;
+    }
+
+    .secondary,
+    .mini-button {
+      color: var(--muted);
+    }
+
+    .mini-button {
+      min-width: 118px;
+    }
+
+    #themeToggle {
+      min-width: 42px;
+      width: 42px;
+      padding: 0;
+    }
+
+    .button-row > button,
+    .mode-toggle > button {
+      flex: 1 1 118px;
+    }
+
+    .setting-value {
+      color: var(--text);
+      font-weight: 740;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .slider-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .slider-row.compact {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    input[type="color"] {
+      width: 44px;
+      height: 38px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+
+    .select-control {
+      min-height: 38px;
+      min-width: 118px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      color: var(--text);
+    }
+
+    .refresh-panel {
+      display: grid;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+
+    .refresh-control-row {
+      display: grid;
+      grid-template-columns: minmax(118px, 1fr) 118px 118px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .readout-grid,
+    .system-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .readout,
+    .system-row {
+      min-height: 56px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+
+    .readout span,
+    .system-row span:first-child {
+      display: block;
+      color: var(--subtle);
+      font-size: 11px;
+    }
+
+    .readout strong,
+    .system-row strong {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 6px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 730;
+      min-width: 0;
+    }
+
+    .system-row.wide {
+      grid-column: 1 / -1;
+      min-height: 0;
+    }
+
+    .system-row strong.wrap {
+      display: block;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .diagnostic-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .diagnostic-summary {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+
+    .diagnostic-path {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius);
+      color: var(--subtle);
+      font-size: 11px;
+    }
+
+    .diagnostic-path strong {
+      color: var(--muted);
+      font-family: "Fira Code", "Cascadia Mono", monospace;
+      font-weight: 500;
+      overflow-wrap: anywhere;
+    }
+
+    .chart-panel { min-height: 370px; }
+    .chart-wrap { height: 305px; }
+    .chart-wrap canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .thermal-console {
+      min-height: 272px;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .thermal-console-header {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--subtle);
+      font: 11px/1 "Fira Code", "Cascadia Mono", monospace;
+    }
+
+    .console-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+    }
+    .console-dot.r { background: #ff5f57; }
+    .console-dot.y { background: #ffbd2e; }
+    .console-dot.g { background: #28c840; }
+
+    .thermal-console-body {
+      height: 234px;
+      overflow: auto;
+      padding: 10px 12px;
+      background: #07101c;
+      color: #d8e3f3;
+      font: 12px/1.55 "Fira Code", "Cascadia Mono", monospace;
+    }
+
+    .log-line {
+      display: grid;
+      grid-template-columns: 70px 48px minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .log-time { color: #6d7b92; }
+    .log-tag { color: var(--accent); }
+    .log-tag.warn { color: var(--amber); }
+    .log-tag.error { color: var(--red); }
+    .log-msg { min-width: 0; overflow-wrap: anywhere; }
+
+    .toast-stack {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 80;
+      display: grid;
+      gap: 8px;
+    }
+
+    .toast {
+      max-width: 320px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      white-space: pre-line;
+    }
+
+    .monitor-mode .topbar,
+    .monitor-mode .page-tabs,
+    .monitor-mode #page1,
+    .monitor-mode #page2,
+    .monitor-mode #infoSection,
+    .monitor-mode .thermal-console {
+      display: none;
+    }
+
+    .monitor-mode .app-shell {
+      width: min(1280px, calc(100vw - 24px));
+      padding-top: 12px;
+    }
+
+    .monitor-mode #page3 {
+      display: grid;
+    }
+
+    .monitor-mode .chart-panel { min-height: calc(100vh - 48px); }
+    .monitor-mode .chart-wrap { height: calc(100vh - 126px); }
+
+    @keyframes pageIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    @media (max-width: 1024px) {
+      .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid-3,
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .app-shell {
+        width: min(100vw - 20px, 1180px);
+        padding-top: 10px;
+      }
+
+      .topbar {
+        position: static;
+        grid-template-columns: 1fr;
+      }
+
+      .top-actions { justify-content: flex-start; }
+
+      .page-tabs {
+        grid-template-columns: 1fr;
+      }
+
+      .grid-4,
+      .readout-grid,
+      .system-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .page-title,
+      .setting-row {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .slider-row,
+      .slider-row.compact,
+      .refresh-control-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body data-scenario="office">
+  <a class="skip-link" href="#viewStage">跳到主内容</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-row">
+        <div class="brand-mark" aria-label="NUCtool">N</div>
+        <div>
+          <h1>NUCtool</h1>
+          <div class="subtitle">风扇、功耗、灯效、Uniwill 服务</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="status-pill">
+          <span id="fanStatusDot" class="dot" data-state="idle"></span>
+          <span id="fanStatusText">待机</span>
+          <span>/</span>
+          <span id="runtimeModeText">模式: 办公</span>
+          <span id="modeStatusDot" class="dot" data-state="idle"></span>
+        </div>
+        <button id="startStopButton" class="primary" type="button"><span id="btnText">启动控制</span></button>
+        <button id="themeToggle" class="secondary mini-button" type="button" aria-label="切换主题"><span id="themeIcon"></span></button>
+      </div>
+    </header>
+
+    <nav class="page-tabs" aria-label="界面切换" role="tablist">
+      <button class="nav-item active" data-target="overviewSection" type="button" role="tab" aria-selected="true">
+        <span class="nav-index">1</span>
+        <span><span class="nav-title">界面 1：概览与风扇</span><span class="nav-sub">温度、转速、场景、恒速</span></span>
+      </button>
+      <button class="nav-item" data-target="powerSection" type="button" role="tab" aria-selected="false">
+        <span class="nav-index">2</span>
+        <span><span class="nav-title">界面 2：功耗与灯效</span><span class="nav-sub">性能模式、Whisper、电池、RGB</span></span>
+      </button>
+      <button class="nav-item" data-target="monitorSection" type="button" role="tab" aria-selected="false">
+        <span class="nav-index">3</span>
+        <span><span class="nav-title">界面 3：监控与状态</span><span class="nav-sub">趋势图、服务状态、运行日志</span></span>
+      </button>
+    </nav>
+
+    <main id="viewStage" class="view-stage">
+      <div id="alertStrip" class="alert-strip"></div>
+      <div id="liveStrip" class="live-strip"><span id="liveStripText"></span></div>
+
+      <section id="page1" class="view-page active" tabindex="-1" aria-label="界面 1 概览与风扇">
+        <div id="overviewSection" class="page-title">
+          <div>
+            <h2>概览与风扇</h2>
+            <p>第一屏只保留最常看的实时数据和风扇接管入口。</p>
+          </div>
+          <span class="mini-chip">当前场景 <strong id="sceneLabel">办公</strong></span>
+        </div>
+
+        <section class="grid-4" aria-label="实时状态">
+          <article class="metric">
+            <div class="metric-label">CPU Temperature</div>
+            <div class="metric-main"><span id="cpuTempValue" class="metric-value">--</span><span class="metric-unit">deg C</span></div>
+            <div class="thermal-line"><span id="cpuTempDot"></span></div>
+          </article>
+          <article class="metric">
+            <div class="metric-label">GPU Temperature</div>
+            <div class="metric-main"><span id="gpuTempValue" class="metric-value">--</span><span class="metric-unit">deg C</span></div>
+            <div class="thermal-line"><span id="gpuTempDot"></span></div>
+          </article>
+          <article class="metric">
+            <div class="metric-label">CPU Fan</div>
+            <div class="metric-main"><span id="cpuFanValue" class="metric-value">--</span><span class="metric-unit">RPM</span></div>
+            <div class="thermal-line"><span id="cpuFanDot"></span></div>
+          </article>
+          <article class="metric">
+            <div class="metric-label">GPU Fan</div>
+            <div class="metric-main"><span id="gpuFanValue" class="metric-value">--</span><span class="metric-unit">RPM</span></div>
+            <div class="thermal-line"><span id="gpuFanDot"></span></div>
+          </article>
+        </section>
+
+        <article class="panel" id="watchdogHomePanel">
+          <div class="section-label">
+            <h3>哨兵 / 看门狗</h3>
+            <span id="watchdogHomeUpdatedValue" class="section-badge">等待诊断</span>
+          </div>
+          <div class="system-grid">
+            <div class="system-row"><span>状态</span><strong><span id="watchdogHomeDot" class="dot" data-state="idle"></span><span id="watchdogHomeStateValue">--</span></strong></div>
+            <div class="system-row"><span>事件</span><strong id="watchdogHomeCountsValue">--</strong></div>
+            <div class="system-row"><span>最近</span><strong id="watchdogHomeLastEventValue">--</strong></div>
+          </div>
+          <div class="button-row" style="margin-top:12px">
+            <button id="forceSentinelTestButton" class="secondary mini-button" type="button">强制测试哨兵</button>
+          </div>
+          <div id="watchdogHomeDetailValue" class="mode-hint diagnostic-summary">还没有读取到哨兵或看门狗日志。</div>
+        </article>
+
+        <section class="grid-2">
+          <article class="panel" id="sceneSection">
+            <div class="section-label"><h3>场景模式</h3><span class="section-badge">5 presets</span></div>
+            <div class="segmented">
+              <button class="scene-btn" data-scenario="silent" type="button"><span class="scene-title">静音</span><span class="scene-reco" data-suggest="silent">待机</span></button>
+              <button class="scene-btn active" data-scenario="office" type="button"><span class="scene-title">办公</span><span class="scene-reco" data-suggest="office">待机</span></button>
+              <button class="scene-btn" data-scenario="gaming" type="button"><span class="scene-title">游戏</span><span class="scene-reco" data-suggest="gaming">待机</span></button>
+              <button class="scene-btn" data-scenario="performance" type="button"><span class="scene-title">性能</span><span class="scene-reco" data-suggest="performance">待机</span></button>
+              <button class="scene-btn" data-scenario="benchmark" type="button"><span class="scene-title">基准</span><span class="scene-reco" data-suggest="benchmark">待机</span></button>
+            </div>
+            <div class="button-row" style="margin-top:12px">
+              <button id="saveConfigButton" class="secondary" type="button">保存</button>
+              <button id="loadConfigButton" class="secondary" type="button">加载</button>
+              <button id="autostartButton" class="secondary" type="button">开机自启: 关闭</button>
+            </div>
+          </article>
+
+          <article class="panel" id="controlSection">
+            <div class="section-label"><h3>风扇控制</h3><span class="section-badge">Fan</span></div>
+            <div class="setting-stack">
+              <div class="setting-row">
+                <div>
+                  <div class="setting-title">控制方式</div>
+                  <div id="controlModeHint" class="mode-hint">场景已启用，恒速不会生效。</div>
+                </div>
+                <div class="mode-toggle">
+                  <button id="enableScenarioButton" class="primary" type="button">场景曲线</button>
+                  <button id="enableConstantButton" class="secondary" type="button">恒速</button>
+                </div>
+              </div>
+              <div>
+                <div class="setting-row">
+                  <div class="setting-sub">恒速转速</div>
+                  <span id="constantSpeedValue" class="setting-value">60%</span>
+                </div>
+                <div class="slider-row compact">
+                  <input id="constantSpeedRange" aria-label="恒速转速百分比" type="range" min="0" max="100" step="1" value="60" />
+                </div>
+              </div>
+              <label class="check-row" for="startupTakeoverCheckbox">
+                <input id="startupTakeoverCheckbox" type="checkbox" />
+                <span>开机自启时自动接管风扇</span>
+              </label>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section id="page2" class="view-page" tabindex="-1" aria-label="界面 2 功耗与灯效" hidden>
+        <div class="page-title">
+          <div>
+            <h2>功耗与灯效</h2>
+            <p>把性能模式、Whisper、电池保养、键盘灯和 Lightbar 集中到第二屏。</p>
+          </div>
+          <button id="refreshPowerButton" class="secondary mini-button" type="button">刷新状态</button>
+        </div>
+
+        <section class="grid-2">
+          <article class="panel" id="powerSection">
+            <div class="section-label"><h3>性能模式</h3><span id="cpuPowerModeValue" class="section-badge">平衡</span></div>
+            <div class="power-stack">
+              <div class="power-segmented" role="group" aria-label="功耗限制模式">
+                <button class="power-btn" data-power-mode="performance" type="button"><span class="power-title">性能</span><span class="power-sub">最高刷新</span></button>
+                <button class="power-btn active" data-power-mode="balanced" type="button"><span class="power-title">平衡</span><span class="power-sub">日常推荐</span></button>
+                <button class="power-btn" data-power-mode="powersave" type="button"><span class="power-title">省电</span><span class="power-sub">关闭 Boost</span></button>
+              </div>
+              <div class="readout-grid">
+                <div class="readout"><span>当前限制</span><strong id="cpuPowerCurrentValue">--</strong></div>
+                <div class="readout"><span>CPU PL1</span><strong id="cpuPowerPl1Value">35W</strong></div>
+                <div class="readout"><span>CPU PL2</span><strong id="cpuPowerPl2Value">50W</strong></div>
+                <div class="readout"><span>屏幕 / Boost</span><strong id="gpuClockLimitValue">保持当前</strong></div>
+              </div>
+              <div id="cpuPowerHint" class="mode-hint">网页、视频、办公推荐。</div>
+              <div class="refresh-panel">
+                <div class="setting-row">
+                  <div><div class="setting-title">屏幕刷新率</div><div id="displayRefreshHint" class="mode-hint">手动修改刷新率，不随性能模式自动切换。</div></div>
+                  <span id="displayRefreshCurrentValue" class="setting-value">--</span>
+                </div>
+                <div class="refresh-control-row">
+                  <select id="displayRefreshSelect" class="select-control" aria-label="屏幕刷新率">
+                    <option value="">读取中</option>
+                  </select>
+                  <button id="applyDisplayRefreshButton" class="secondary mini-button" type="button">应用</button>
+                  <button id="refreshDisplayRefreshButton" class="secondary mini-button" type="button">刷新</button>
+                </div>
+                <div class="mode-hint">可用刷新率：<span id="displayRefreshSupportedValue">--</span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="section-label"><h3>Whisper 与电池</h3><span class="section-badge">Vendor</span></div>
+            <div class="setting-stack">
+              <div class="setting-row">
+                <div><div class="setting-title">Whisper</div><div id="whisperHint" class="mode-hint">安静模式与 FPS 限制。</div></div>
+                <div class="mode-toggle">
+                  <button class="secondary mini-button whisper-btn active" data-whisper-mode="Off" type="button">关闭</button>
+                  <button class="secondary mini-button whisper-btn" data-whisper-mode="Quieter" type="button">更静</button>
+                  <button class="secondary mini-button whisper-btn" data-whisper-mode="Quiet" type="button">安静</button>
+                  <button class="secondary mini-button whisper-btn" data-whisper-mode="Balanced" type="button">平衡</button>
+                </div>
+              </div>
+              <div class="slider-row">
+                <span id="whisperFpsValue" class="setting-value">不限制</span>
+                <input id="whisperFpsRange" aria-label="Whisper FPS 限制" type="range" min="0" max="240" step="5" value="0" />
+                <button id="applyWhisperButton" class="secondary mini-button" type="button">应用</button>
+              </div>
+              <div class="setting-row">
+                <div><div class="setting-title">电池</div><div id="batteryHint" class="mode-hint">厂商电池保养模式。</div></div>
+                <div class="mode-toggle">
+                  <button class="secondary mini-button battery-btn" data-battery-mode="AcMode" type="button">满充</button>
+                  <button class="secondary mini-button battery-btn active" data-battery-mode="BestBattery" type="button">保养</button>
+                  <button class="secondary mini-button battery-btn" data-battery-mode="Custom" type="button">自定义</button>
+                </div>
+              </div>
+              <div class="slider-row">
+                <span id="batteryLevelValue" class="setting-value">80%</span>
+                <input id="batteryLevelRange" aria-label="电池充电自定义上限" type="range" min="50" max="100" step="1" value="80" />
+                <button id="applyBatteryButton" class="secondary mini-button" type="button">应用</button>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="section-label"><h3>灯效</h3><span class="section-badge">KeyboardLedIndividualKeyControl / LightbarSingleColor</span></div>
+          <div class="grid-3">
+            <div class="setting-stack">
+              <div class="setting-title">颜色</div>
+              <div class="mode-toggle">
+                <input id="lightingColorInput" aria-label="灯效颜色" type="color" value="#ffffff" />
+                <button id="applyLightingButton" class="secondary mini-button" type="button">应用灯效</button>
+              </div>
+              <div id="lightingHint" class="mode-hint">键盘灯与 Lightbar 单色模式。</div>
+            </div>
+            <div class="setting-stack">
+              <div class="setting-row"><span class="setting-sub">键盘亮度</span><span id="keyboardBrightnessValue" class="setting-value">30%</span></div>
+              <input id="keyboardBrightnessRange" aria-label="键盘灯亮度" type="range" min="0" max="100" step="1" value="30" />
+            </div>
+            <div class="setting-stack">
+              <div class="setting-row"><span class="setting-sub">Lightbar 亮度</span><span id="lightbarBrightnessValue" class="setting-value">0%</span></div>
+              <input id="lightbarBrightnessRange" aria-label="Lightbar 亮度" type="range" min="0" max="100" step="1" value="0" />
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="page3" class="view-page" tabindex="-1" aria-label="界面 3 监控与状态" hidden>
+        <div class="page-title">
+          <div>
+            <h2>监控与状态</h2>
+            <p>第三屏放趋势图、服务连接状态和运行日志，避免干扰日常控制。</p>
+          </div>
+          <div class="button-row">
+            <button id="refreshDiagnosticsButton" class="secondary mini-button" type="button">刷新诊断</button>
+            <button id="toggleMonitorModeButton" class="secondary mini-button" type="button">进入大屏监控</button>
+          </div>
+        </div>
+
+        <article class="panel chart-panel" id="monitorSection">
+          <div class="section-label"><h3>实时趋势</h3><span class="section-badge">Trend</span></div>
+          <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+        </article>
+
+        <article class="panel diagnostic-panel" id="diagnosticSection">
+          <div class="section-label">
+            <h3>诊断摘要</h3>
+            <span id="diagnosticUpdatedValue" class="section-badge">等待刷新</span>
+          </div>
+          <div class="system-grid">
+            <div class="system-row"><span>健康</span><strong><span id="diagnosticHealthDot" class="dot" data-state="idle"></span><span id="diagnosticHealthValue">--</span></strong></div>
+            <div class="system-row"><span>告警 / 错误</span><strong id="diagnosticWarnErrorValue">--</strong></div>
+            <div class="system-row"><span>TDP 漂移</span><strong id="diagnosticTdpValue">--</strong></div>
+            <div class="system-row"><span>UI 卡顿</span><strong id="diagnosticUiValue">--</strong></div>
+            <div class="system-row"><span>厂商服务</span><strong id="diagnosticVendorValue">--</strong></div>
+            <div class="system-row"><span>硬件繁忙</span><strong id="diagnosticBusyValue">--</strong></div>
+          </div>
+          <div id="diagnosticSummaryText" class="mode-hint diagnostic-summary">最近日志未刷新。</div>
+          <div class="diagnostic-path"><span>日志</span><strong id="diagnosticLogPath">--</strong></div>
+        </article>
+
+        <section class="grid-2">
+          <article class="panel" id="infoSection">
+            <div class="section-label">
+              <h3>系统状态</h3>
+              <div class="button-row">
+                <span id="vendorUpdatedValue" class="section-badge">厂家服务等待检测</span>
+                <button id="refreshVendorStatusButton" class="secondary mini-button" type="button">刷新厂家服务</button>
+              </div>
+            </div>
+            <div class="system-grid">
+              <div class="system-row"><span>系统</span><strong><span id="actorStateDot" class="dot" data-state="idle"></span><span id="actorStateValue">--</span></strong></div>
+              <div class="system-row"><span>运行</span><strong><span id="actorRunningValue">--</span></strong></div>
+              <div class="system-row"><span>模式</span><strong><span id="actorModeValue">--</span></strong></div>
+              <div class="system-row"><span>控制</span><strong><span id="actorControlValue">--</span></strong></div>
+              <div class="system-row"><span>厂商服务</span><strong><span id="vendorServiceDot" class="dot" data-state="idle"></span><span id="vendorServiceValue">检测中</span></strong></div>
+              <div class="system-row"><span>厂家包</span><strong id="vendorPackageValue">--</strong></div>
+              <div class="system-row"><span>服务进程</span><strong id="vendorProcessValue">--</strong></div>
+              <div class="system-row"><span>SDK</span><strong id="vendorSdkValue">--</strong></div>
+              <div class="system-row"><span>厂商模式</span><strong><span id="vendorProfileValue">--</span></strong></div>
+              <div class="system-row"><span>丢样</span><strong><span id="actorDroppedValue">0</span></strong></div>
+              <div class="system-row"><span>采样</span><strong><span id="actorSampleAtValue">--</span></strong></div>
+              <div class="system-row"><span>CPU 功耗</span><strong id="cpuPowerValue">--</strong></div>
+              <div class="system-row"><span>GPU 功耗</span><strong id="gpuPowerValue">--</strong></div>
+              <div class="system-row wide"><span>服务端点</span><strong id="vendorEndpointValue" class="wrap">--</strong></div>
+              <div class="system-row wide"><span>检测详情</span><strong id="vendorDetailValue" class="wrap">--</strong></div>
+            </div>
+          </article>
+
+          <article class="panel thermal-console">
+            <div class="thermal-console-header">
+              <span class="console-dot r"></span>
+              <span class="console-dot y"></span>
+              <span class="console-dot g"></span>
+              <span style="margin-left:auto">SYS.LOG</span>
+            </div>
+            <div class="thermal-console-body" id="consoleBody">
+              <div class="log-line"><span class="log-time">--:--:--</span><span class="log-tag">INIT</span><span class="log-msg">NUCtool 初始化中...</span></div>
+              <div class="log-line"><span class="log-time">--:--:--</span><span class="log-tag">SYS</span><span class="log-msg">等待传感器数据。</span></div>
+            </div>
+          </article>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+  <script>
+    (function () {
+      var key = 'nuctool.theme';
+      var root = document.documentElement;
+      var button = document.getElementById('themeToggle');
+      var icon = document.getElementById('themeIcon');
+      var sun = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v2M12 19v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M3 12h2M19 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/><circle cx="12" cy="12" r="4"/></svg>';
+      var moon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 6.6 6.6 0 0 0 21 12.8z"/></svg>';
+      function apply(theme) {
+        root.setAttribute('data-theme', theme);
+        if (icon) icon.innerHTML = theme === 'dark' ? sun : moon;
+        try { localStorage.setItem(key, theme); } catch (e) {}
+      }
+      var stored = 'dark';
+      try { stored = localStorage.getItem(key) || 'dark'; } catch (e) {}
+      apply(stored === 'light' ? 'light' : 'dark');
+      if (button) {
+        button.addEventListener('click', function () {
+          apply(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+        });
+      }
+    })();
+
+    (function () {
+      var body = document.getElementById('consoleBody');
+      if (!body) return;
+      var maxLines = 24;
+      function now() {
+        return new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      }
+      function log(tag, msg, cls) {
+        var line = document.createElement('div');
+        line.className = 'log-line';
+        line.innerHTML = '<span class="log-time">' + now() + '</span><span class="log-tag ' + (cls || '') + '">' + tag + '</span><span class="log-msg"></span>';
+        line.querySelector('.log-msg').textContent = msg;
+        body.appendChild(line);
+        while (body.children.length > maxLines) body.removeChild(body.firstChild);
+        body.scrollTop = body.scrollHeight;
+      }
+      body.querySelectorAll('.log-time').forEach(function (el) { el.textContent = now(); });
+      document.addEventListener('nuctool-metrics', function (event) {
+        var detail = event.detail || {};
+        setBar('cpuTempDot', detail.cpuTemp || 0, 110);
+        setBar('gpuTempDot', detail.gpuTemp || 0, 110);
+        setBar('cpuFanDot', detail.cpuFan || 0, 7000);
+        setBar('gpuFanDot', detail.gpuFan || 0, 7000);
+      });
+      setInterval(function () {
+        var cpu = document.getElementById('cpuTempValue');
+        var gpu = document.getElementById('gpuTempValue');
+        if (!cpu || !gpu || cpu.textContent === '--') return;
+        log('TEMP', 'CPU ' + cpu.textContent + ' deg C / GPU ' + gpu.textContent + ' deg C');
+      }, 8000);
+      function setBar(id, value, max) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.style.width = Math.max(0, Math.min(100, value / max * 100)) + '%';
+      }
+    })();
+  </script>
+  <script src="./main.js"></script>
+</body>
+</html>

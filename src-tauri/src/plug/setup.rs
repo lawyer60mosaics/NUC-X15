@@ -4,15 +4,11 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::plugin::PermissionState;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, Manager};
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-use crate::plug::{
-    config::get_config_dir,
-    fan::fan_reset
-};
+use crate::plug::{config::get_config_dir, diagnostics::app_log, fan::fan_reset};
 
 async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
     let up: Update;
@@ -25,7 +21,7 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
                 println!("update check failed: {:#?}", e);
                 return Ok(());
             }
-            _ => return Ok(())
+            _ => return Ok(()),
         },
         Err(e) => {
             println!("Updater Error: {:#?}", e);
@@ -33,8 +29,12 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
         }
     }
     println!("update found: {:#?}", up.body);
+    let update_body = up
+        .body
+        .clone()
+        .unwrap_or_else(|| "A new NUCtool update is available.".to_string());
     app.dialog()
-        .message(up.clone().body.unwrap().as_str())
+        .message(update_body.as_str())
         .title("NUCtool 有新版本 v".to_owned() + up.clone().version.as_str())
         .buttons(MessageDialogButtons::OkCancelCustom(
             "更新".to_string(),
@@ -44,19 +44,26 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
             true => {
                 tauri::async_runtime::spawn(async move {
                     let mut downloaded = 0;
-                    up.download_and_install(
-                        |chunk_length, content_length| {
-                            downloaded += chunk_length;
-                            println!("downloaded {downloaded} from {content_length:?}");
-                        },
-                        || {
-                            println!("download finished");
-                        },
-                    )
-                    .await
-                    .expect("download failed");
-                    println!("update installed");
-                    app.restart();
+                    let result = up
+                        .download_and_install(
+                            |chunk_length, content_length| {
+                                downloaded += chunk_length;
+                                println!("downloaded {downloaded} from {content_length:?}");
+                            },
+                            || {
+                                println!("download finished");
+                            },
+                        )
+                        .await;
+                    match result {
+                        Ok(_) => {
+                            println!("update installed");
+                            app.restart();
+                        }
+                        Err(e) => {
+                            println!("download failed: {:#?}", e);
+                        }
+                    }
                 });
             }
             false => {
@@ -69,40 +76,31 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
 pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     #[cfg(debug_assertions)] // only include this code on debug builds
     {
-      let window = app.get_webview_window("main").unwrap();
-      window.open_devtools();
-      window.close_devtools();
+        if let Some(window) = app.get_webview_window("main") {
+            window.open_devtools();
+            window.close_devtools();
+        }
     }
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
         match update(handle).await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 println!("update error: {:#?}", e);
             }
         }
     });
-    // 自启动
-    let autostart_manager = app.autolaunch();
-    println!("自启动状态: {}", autostart_manager.is_enabled()?);
     let config_dir = get_config_dir();
-    fs::create_dir_all(&config_dir).unwrap();
-    let config_beta = config_dir.join("beta.config");
-    if !config_beta.exists() {
-        println!("beta.config 配置文件不存在");
-        fs::write(&config_beta, "0").map_err(|e| e.to_string())?;
-    }
-    if config_beta.exists() {
-        let beta = fs::read_to_string(config_beta)
-            .map_err(|e| e.to_string())?
-            .parse::<i64>()?;
-        if beta == 1 {
-            let _ = autostart_manager.enable();
-        } else {
-            let _ = autostart_manager.disable();
-        }
-    }
-    let window = app.get_webview_window("main").unwrap();
+    fs::create_dir_all(&config_dir)?;
+    app_log(
+        "autostart",
+        "info",
+        "startup.preserve_user_setting",
+        format!("config_dir={}", config_dir.display()),
+    );
+    let Some(window) = app.get_webview_window("main") else {
+        return Err("main webview window not found".into());
+    };
     let _ = window.set_size(tauri::LogicalSize::new(1200.0, 780.0));
     let _ = window.set_min_size(Some(tauri::LogicalSize::new(680.0, 480.0)));
     let _ = window.center();
@@ -110,11 +108,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let q = MenuItemBuilder::with_id("q", "退出程序").build(app)?;
     let d = MenuItemBuilder::with_id("d", "调试模式").build(app)?;
     let menu = MenuBuilder::new(app).items(&[&h, &d, &q]).build()?;
-    let _tray = TrayIconBuilder::with_id("main_tray")
+    let mut tray_builder = TrayIconBuilder::with_id("main_tray")
         .menu(&menu)
-        .show_menu_on_left_click(false)
-        // .title("NUCtool")
-        .icon(app.default_window_icon().unwrap().clone())
+        .show_menu_on_left_click(false);
+    if let Some(icon) = app.default_window_icon() {
+        tray_builder = tray_builder.icon(icon.clone());
+    }
+    let _tray = tray_builder
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "h" => {
                 println!("显示 clicked");
@@ -124,12 +124,13 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
                 }
             }
             "q" => {
-                if app.notification().permission_state().unwrap() == PermissionState::Granted {
-                    app.notification()
-                        .builder()
-                        .body("安全退出！")
-                        .show()
-                        .unwrap();
+                if app
+                    .notification()
+                    .permission_state()
+                    .unwrap_or(PermissionState::Denied)
+                    == PermissionState::Granted
+                {
+                    let _ = app.notification().builder().body("安全退出！").show();
                 }
                 thread::spawn(move || {
                     thread::sleep(Duration::from_secs(1));
@@ -148,26 +149,31 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         })
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::Click {
-              button: MouseButton::Left,
-              button_state: MouseButtonState::Up,
-              ..
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
             } => {
-              println!("left click pressed and released");
-              let app = tray.app_handle();
-              if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-              }
+                println!("left click pressed and released");
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
             _ => {
                 // println!("unhandled event {event:?}");
             }
-        }).build(app)?;
+        })
+        .build(app)?;
     #[cfg(windows)]
-    window_vibrancy::apply_acrylic(&window, Some((18, 18, 18, 125)))
-        .expect("Unsupported platform! 'apply_blur' is only supported on Windows");
+    if let Err(e) = window_vibrancy::apply_acrylic(&window, Some((18, 18, 18, 125))) {
+        println!("apply_acrylic main failed: {:?}", e);
+    }
     #[cfg(windows)]
-    window_vibrancy::apply_acrylic(&app.get_webview_window("tdp").unwrap(), Some((18, 18, 18, 125)))
-        .expect("Unsupported platform! 'apply_blur' is only supported on Windows");
+    if let Some(tdp_window) = app.get_webview_window("tdp") {
+        if let Err(e) = window_vibrancy::apply_acrylic(tdp_window, Some((18, 18, 18, 125))) {
+            println!("apply_acrylic tdp failed: {:?}", e);
+        }
+    }
     Ok(())
 }

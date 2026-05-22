@@ -1,8 +1,8 @@
+use colored::Colorize;
+use nix::unistd::Uid;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command, Output};
-use colored::Colorize;
-use nix::unistd::Uid;
 // use crate::{
 //     plug::struct_set::KERNEL_ID
 // };
@@ -10,7 +10,7 @@ use nix::unistd::Uid;
 pub fn get_sys(driver: &PathBuf) -> i64 {
     match fs::read_to_string(driver) {
         Ok(content) => content.trim().parse::<i64>().unwrap_or(0),
-        Err(_) => 0
+        Err(_) => 0,
     }
 }
 
@@ -23,7 +23,7 @@ pub fn set_sys(driver: &PathBuf, n: i64) -> bool {
 }
 
 pub fn get_model_id() -> i64 {
-        let output = Command::new("dmidecode")
+    let output = Command::new("dmidecode")
         .arg("-t")
         .arg("system")
         .output()
@@ -32,13 +32,13 @@ pub fn get_model_id() -> i64 {
     if output.status.success() {
         let dmidecode_output = String::from_utf8_lossy(&output.stdout);
         for line in dmidecode_output.lines() {
-            if line.contains("Product Name"){
-                if let Some(line) =  line.to_string().split(" ").last() {
+            if line.contains("Product Name") {
+                if let Some(line) = line.to_string().split(" ").last() {
                     println!("Product Name: {}", line);
                     if line == "LAPAC71H" {
-                        return 1
+                        return 1;
                     } else {
-                        return 0
+                        return 0;
                     }
                 }
             }
@@ -51,19 +51,17 @@ pub fn get_model_id() -> i64 {
 }
 
 pub fn get_kernel_version() -> i64 {
-    let output = Command::new("uname")
-        .arg("-r")
-        .output();
-    
+    let output = Command::new("uname").arg("-r").output();
+
     match output {
         Ok(output) if output.status.success() => {
             let kernel_version = String::from_utf8_lossy(&output.stdout);
             let parts: Vec<&str> = kernel_version.trim().split('-').collect();
-            
+
             if let Some(last_part) = parts.last() {
                 let version_parts: Vec<&str> = last_part.split('.').collect();
                 println!("Linux Kernel Version: {:?}", version_parts);
-                
+
                 if let Some(&major) = version_parts.first() {
                     if let Ok(major_num) = major.parse::<i64>() {
                         if major_num == 6 {
@@ -73,7 +71,7 @@ pub fn get_kernel_version() -> i64 {
                                     "12" => 3,
                                     "11" => 2,
                                     "10" => 1,
-                                    _ => 0
+                                    _ => 0,
                                 }
                             } else {
                                 0
@@ -84,7 +82,7 @@ pub fn get_kernel_version() -> i64 {
             }
         }
         Ok(_) => eprintln!("uname command failed"),
-        Err(e) => eprintln!("Failed to execute uname: {}", e)
+        Err(e) => eprintln!("Failed to execute uname: {}", e),
     }
     0
 }

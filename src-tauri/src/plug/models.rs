@@ -23,6 +23,7 @@ pub struct ControlState {
     pub invalid_temp_streak: u8,
     pub released_to_auto_due_invalid: bool,
     pub wake_cooldown_ticks_remaining: u32,
+    pub manual_mode_check_ticks: u32,
 }
 
 impl ControlState {
@@ -50,6 +51,7 @@ impl ControlState {
             invalid_temp_streak: 0,
             released_to_auto_due_invalid: false,
             wake_cooldown_ticks_remaining: 0,
+            manual_mode_check_ticks: 0,
         }
     }
 }

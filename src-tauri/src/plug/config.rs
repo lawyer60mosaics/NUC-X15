@@ -1,40 +1,28 @@
-use std::{
-    fs,
-    path::PathBuf
-};
+use std::{env, fs, path::PathBuf};
 
 #[cfg(unix)]
-use std::{io::Read, fs::File};
+use std::{fs::File, io::Read};
 
 use crate::plug::{
     constants::{
-        DEFAULT_ALERT_CONFIRM_TIMES,
-        DEFAULT_CPU_ALERT_THRESHOLD,
-        DEFAULT_GPU_ALERT_THRESHOLD,
-        DEFAULT_MONITOR_SAMPLE_INTERVAL_MS,
-        DEFAULT_GPU_LINKAGE_BOOST,
-        DEFAULT_GPU_LINKAGE_THRESHOLD,
-        DEFAULT_ZERO_RPM_THRESHOLD,
-        MAX_MONITOR_SAMPLE_INTERVAL_MS,
-        MAX_TEMP_LIMIT,
-        MIN_FAN_SPEED,
-        MIN_MONITOR_SAMPLE_INTERVAL_MS,
-        MIN_TEMP_LIMIT,
+        DEFAULT_ALERT_CONFIRM_TIMES, DEFAULT_CPU_ALERT_THRESHOLD, DEFAULT_GPU_ALERT_THRESHOLD,
+        DEFAULT_GPU_LINKAGE_BOOST, DEFAULT_GPU_LINKAGE_THRESHOLD,
+        DEFAULT_MONITOR_SAMPLE_INTERVAL_MS, DEFAULT_ZERO_RPM_THRESHOLD,
+        MAX_MONITOR_SAMPLE_INTERVAL_MS, MAX_TEMP_LIMIT, MIN_FAN_SPEED,
+        MIN_MONITOR_SAMPLE_INTERVAL_MS, MIN_TEMP_LIMIT,
     },
     fan_curve::sanitize_curve,
     mode_profiles::{
-        default_cpu_fan_max_for_mode,
-        default_gpu_fan_max_for_mode,
-        default_hysteresis_for_mode,
-        default_profile_curves,
-        default_ramp_step_for_mode,
+        default_cpu_fan_max_for_mode, default_gpu_fan_max_for_mode, default_hysteresis_for_mode,
+        default_profile_curves, default_ramp_step_for_mode,
     },
     struct_set::{FanControlMode, FanData},
 };
 
 pub fn get_config_dir() -> PathBuf {
     dirs::config_dir()
-        .unwrap()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(env::temp_dir)
         .join("com.nuc.x15.fan.cyear.app")
 }
 
@@ -82,14 +70,18 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
     };
 
     let legacy_preset = fan_data.control.preset.to_lowercase();
+    let mut mode_from_legacy_preset = false;
     if fan_data.control.mode == FanControlMode::Office {
-        fan_data.control.mode = match legacy_preset.as_str() {
+        let resolved_mode = match legacy_preset.as_str() {
             "silent" => FanControlMode::Silent,
             "performance" | "gaming" => FanControlMode::Gaming,
             "fullspeed" => FanControlMode::Performance,
+            "benchmark" | "bench" | "stress" => FanControlMode::Benchmark,
             "custom" => FanControlMode::Custom,
             _ => FanControlMode::Office,
         };
+        mode_from_legacy_preset = resolved_mode != FanControlMode::Office;
+        fan_data.control.mode = resolved_mode;
     }
 
     fan_data.control.preset = match fan_data.control.mode {
@@ -97,6 +89,7 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
         FanControlMode::Office => "standard".to_string(),
         FanControlMode::Gaming => "performance".to_string(),
         FanControlMode::Performance => "fullspeed".to_string(),
+        FanControlMode::Benchmark => "benchmark".to_string(),
         FanControlMode::Custom => "custom".to_string(),
     };
 
@@ -130,12 +123,15 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
         fan_data.control.constant_speed = 60;
     }
 
-    if fan_data.control.ramp_up_step <= 0 {
+    let use_mode_defaults =
+        mode_from_legacy_preset && fan_data.control.mode != FanControlMode::Custom;
+
+    if fan_data.control.ramp_up_step <= 0 || use_mode_defaults {
         fan_data.control.ramp_up_step = default_ramp_step_for_mode(&fan_data.control.mode);
     }
     fan_data.control.ramp_up_step = fan_data.control.ramp_up_step.clamp(1, 40);
 
-    if fan_data.control.ramp_down_step <= 0 {
+    if fan_data.control.ramp_down_step <= 0 || use_mode_defaults {
         fan_data.control.ramp_down_step = default_ramp_step_for_mode(&fan_data.control.mode);
     }
     fan_data.control.ramp_down_step = fan_data.control.ramp_down_step.clamp(1, 30);
@@ -144,33 +140,40 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
     let mode_gpu_cap = default_gpu_fan_max_for_mode(&fan_data.control.mode);
     let mode_hysteresis = default_hysteresis_for_mode(&fan_data.control.mode);
 
-    if fan_data.control.cpu_hysteresis_bandwidth <= 0 {
+    if fan_data.control.cpu_hysteresis_bandwidth <= 0 || use_mode_defaults {
         fan_data.control.cpu_hysteresis_bandwidth = mode_hysteresis;
     }
-    if fan_data.control.gpu_hysteresis_bandwidth <= 0 {
+    if fan_data.control.gpu_hysteresis_bandwidth <= 0 || use_mode_defaults {
         fan_data.control.gpu_hysteresis_bandwidth = mode_hysteresis;
     }
-    fan_data.control.cpu_hysteresis_bandwidth = fan_data.control.cpu_hysteresis_bandwidth.clamp(1, 12);
-    fan_data.control.gpu_hysteresis_bandwidth = fan_data.control.gpu_hysteresis_bandwidth.clamp(1, 12);
+    fan_data.control.cpu_hysteresis_bandwidth =
+        fan_data.control.cpu_hysteresis_bandwidth.clamp(1, 12);
+    fan_data.control.gpu_hysteresis_bandwidth =
+        fan_data.control.gpu_hysteresis_bandwidth.clamp(1, 12);
 
-    if fan_data.control.cpu_fan_max_percent <= 0 {
+    if fan_data.control.cpu_fan_max_percent <= 0 || use_mode_defaults {
         fan_data.control.cpu_fan_max_percent = mode_cpu_cap;
     }
-    if fan_data.control.gpu_fan_max_percent <= 0 {
+    if fan_data.control.gpu_fan_max_percent <= 0 || use_mode_defaults {
         fan_data.control.gpu_fan_max_percent = mode_gpu_cap;
     }
     fan_data.control.cpu_fan_max_percent = fan_data.control.cpu_fan_max_percent.clamp(20, 100);
     fan_data.control.gpu_fan_max_percent = fan_data.control.gpu_fan_max_percent.clamp(20, 100);
 
     if fan_data.control.mode != FanControlMode::Custom {
-        fan_data.control.cpu_fan_max_percent = fan_data.control.cpu_fan_max_percent.min(mode_cpu_cap);
-        fan_data.control.gpu_fan_max_percent = fan_data.control.gpu_fan_max_percent.min(mode_gpu_cap);
+        fan_data.control.cpu_fan_max_percent =
+            fan_data.control.cpu_fan_max_percent.min(mode_cpu_cap);
+        fan_data.control.gpu_fan_max_percent =
+            fan_data.control.gpu_fan_max_percent.min(mode_gpu_cap);
     }
 
     if fan_data.control.gpu_linkage_threshold <= 0 {
         fan_data.control.gpu_linkage_threshold = DEFAULT_GPU_LINKAGE_THRESHOLD;
     }
-    fan_data.control.gpu_linkage_threshold = fan_data.control.gpu_linkage_threshold.clamp(60, MAX_TEMP_LIMIT);
+    fan_data.control.gpu_linkage_threshold = fan_data
+        .control
+        .gpu_linkage_threshold
+        .clamp(60, MAX_TEMP_LIMIT);
 
     if fan_data.control.gpu_linkage_boost < 0 {
         fan_data.control.gpu_linkage_boost = DEFAULT_GPU_LINKAGE_BOOST;
@@ -202,30 +205,22 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
 
     fan_data.alerts.recover_delta = fan_data.alerts.recover_delta.clamp(1, 10);
 
-    fan_data.alerts.cpu.actions.confirm_times = fan_data
-        .alerts
-        .cpu
-        .actions
-        .confirm_times
-        .clamp(1, 10);
+    fan_data.alerts.cpu.actions.confirm_times =
+        fan_data.alerts.cpu.actions.confirm_times.clamp(1, 10);
     if fan_data.alerts.cpu.actions.confirm_times == 0 {
         fan_data.alerts.cpu.actions.confirm_times = DEFAULT_ALERT_CONFIRM_TIMES;
     }
 
-    fan_data.alerts.gpu.actions.confirm_times = fan_data
-        .alerts
-        .gpu
-        .actions
-        .confirm_times
-        .clamp(1, 10);
+    fan_data.alerts.gpu.actions.confirm_times =
+        fan_data.alerts.gpu.actions.confirm_times.clamp(1, 10);
     if fan_data.alerts.gpu.actions.confirm_times == 0 {
         fan_data.alerts.gpu.actions.confirm_times = DEFAULT_ALERT_CONFIRM_TIMES;
     }
 
-    fan_data.monitor.sample_interval_ms = fan_data
-        .monitor
-        .sample_interval_ms
-        .clamp(MIN_MONITOR_SAMPLE_INTERVAL_MS, MAX_MONITOR_SAMPLE_INTERVAL_MS.min(1000));
+    fan_data.monitor.sample_interval_ms = fan_data.monitor.sample_interval_ms.clamp(
+        MIN_MONITOR_SAMPLE_INTERVAL_MS,
+        MAX_MONITOR_SAMPLE_INTERVAL_MS.min(1000),
+    );
     if fan_data.monitor.sample_interval_ms == 0 {
         fan_data.monitor.sample_interval_ms = DEFAULT_MONITOR_SAMPLE_INTERVAL_MS.clamp(500, 1000);
     }
@@ -237,20 +232,32 @@ pub fn default_fan_data() -> FanData {
     normalize_fan_data(FanData::default())
 }
 
+pub fn saved_startup_takeover_enabled() -> bool {
+    let Ok(config_path) = get_config_file_path() else {
+        return false;
+    };
+    if !config_path.exists() {
+        return false;
+    }
+    read_fan_data(&config_path)
+        .map(|fan_data| fan_data.control.startup_takeover_enabled)
+        .unwrap_or(false)
+}
+
 fn write_fan_data(path: &PathBuf, fan_data: &FanData) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {}", e))?;
     }
 
-    let json_data = serde_json::to_string_pretty(fan_data)
-        .map_err(|e| format!("序列化配置失败: {}", e))?;
+    let json_data =
+        serde_json::to_string_pretty(fan_data).map_err(|e| format!("序列化配置失败: {}", e))?;
     fs::write(path, json_data).map_err(|e| format!("写入配置文件失败: {}", e))
 }
 
 fn read_fan_data(path: &PathBuf) -> Result<FanData, String> {
     let json_data = fs::read_to_string(path).map_err(|e| format!("读取配置文件失败: {}", e))?;
-    let fan_data: FanData = serde_json::from_str(&json_data)
-        .map_err(|e| format!("解析配置文件失败: {}", e))?;
+    let fan_data: FanData =
+        serde_json::from_str(&json_data).map_err(|e| format!("解析配置文件失败: {}", e))?;
     Ok(normalize_fan_data(fan_data))
 }
 
@@ -340,7 +347,8 @@ pub async fn list_fan_profiles() -> Result<Vec<String>, String> {
         return Ok(vec![]);
     }
     let mut profiles = vec![];
-    for entry in fs::read_dir(profile_dir).map_err(|e| format!("读取配置档案目录失败: {}", e))? {
+    for entry in fs::read_dir(profile_dir).map_err(|e| format!("读取配置档案目录失败: {}", e))?
+    {
         let entry = entry.map_err(|e| format!("读取配置档案失败: {}", e))?;
         let path = entry.path();
         if path.extension().and_then(|x| x.to_str()) != Some("json") {

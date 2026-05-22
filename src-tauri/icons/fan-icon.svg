@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="NUCtool fan icon">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="74%">
+      <stop offset="0%" stop-color="#242426"/>
+      <stop offset="54%" stop-color="#09090a"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="48%">
+      <stop offset="0%" stop-color="#ff4650" stop-opacity=".65"/>
+      <stop offset="62%" stop-color="#e50914" stop-opacity=".26"/>
+      <stop offset="100%" stop-color="#e50914" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="blade" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ff4d57"/>
+      <stop offset="46%" stop-color="#b40610"/>
+      <stop offset="100%" stop-color="#2a0205"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="42%" stop-color="#bfc2c9"/>
+      <stop offset="100%" stop-color="#3a3d44"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="104" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="196" fill="url(#glow)"/>
+  <circle cx="256" cy="256" r="166" fill="none" stroke="#e50914" stroke-opacity=".52" stroke-width="18"/>
+  <g transform="translate(256 256)">
+    <path d="M0,-40 C62,-128 150,-142 176,-96 C199,-56 157,-17 68,-8 C37,-5 16,-17 0,-40Z" fill="url(#blade)"/>
+    <path d="M0,-40 C62,-128 150,-142 176,-96 C199,-56 157,-17 68,-8 C37,-5 16,-17 0,-40Z" fill="url(#blade)" transform="rotate(72)"/>
+    <path d="M0,-40 C62,-128 150,-142 176,-96 C199,-56 157,-17 68,-8 C37,-5 16,-17 0,-40Z" fill="url(#blade)" transform="rotate(144)"/>
+    <path d="M0,-40 C62,-128 150,-142 176,-96 C199,-56 157,-17 68,-8 C37,-5 16,-17 0,-40Z" fill="url(#blade)" transform="rotate(216)"/>
+    <path d="M0,-40 C62,-128 150,-142 176,-96 C199,-56 157,-17 68,-8 C37,-5 16,-17 0,-40Z" fill="url(#blade)" transform="rotate(288)"/>
+  </g>
+  <circle cx="256" cy="256" r="64" fill="#08090b" stroke="#e50914" stroke-width="10"/>
+  <circle cx="256" cy="256" r="38" fill="url(#metal)"/>
+  <circle cx="242" cy="240" r="9" fill="#ffffff" opacity=".82"/>
+</svg>

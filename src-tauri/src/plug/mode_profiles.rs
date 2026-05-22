@@ -64,6 +64,18 @@ fn mode_spec(mode: &FanControlMode) -> ModeSpec {
             cpu_fan_max_percent: 100,
             gpu_fan_max_percent: 100,
         },
+        FanControlMode::Benchmark => ModeSpec {
+            cpu_start_temp: 30,
+            cpu_slope_end_temp: 62,
+            cpu_full_speed_temp: 72,
+            gpu_start_temp: 30,
+            gpu_slope_end_temp: 58,
+            gpu_full_speed_temp: 70,
+            ramp_step_percent_per_sec: 12,
+            hysteresis_bandwidth: 1,
+            cpu_fan_max_percent: 100,
+            gpu_fan_max_percent: 100,
+        },
         FanControlMode::Custom => ModeSpec {
             cpu_start_temp: 45,
             cpu_slope_end_temp: 70,

@@ -15,7 +15,7 @@ pub fn speed_handle(temp_old: i64, speed_old: i64, temp: i64, speed: i64, temp_n
 pub fn sanitize_curve(curve: &[FanPoint], side: &str) -> Vec<FanPoint> {
     let mut points: Vec<FanPoint> = curve
         .iter()
-        .filter_map(|p| {
+        .map(|p| {
             let t = (p.temperature as i64).clamp(MIN_TEMP_LIMIT, MAX_TEMP_LIMIT);
             let s = (p.speed as i64).clamp(0, MAX_FAN_SPEED_PERCENT);
 
@@ -26,16 +26,39 @@ pub fn sanitize_curve(curve: &[FanPoint], side: &str) -> Vec<FanPoint> {
                 );
             }
 
-            Some(FanPoint {
+            FanPoint {
                 temperature: t as i32,
                 speed: s as i32,
-            })
+            }
         })
         .collect();
 
-    points.sort_by_key(|p| p.temperature);
-    points.dedup_by_key(|p| p.temperature);
-    points
+    points.sort_by_key(|p| (p.temperature, p.speed));
+
+    let mut merged: Vec<FanPoint> = Vec::with_capacity(points.len());
+    for point in points {
+        match merged.last_mut() {
+            Some(last) if last.temperature == point.temperature => {
+                last.speed = last.speed.max(point.speed);
+            }
+            _ => merged.push(point),
+        }
+    }
+
+    let mut max_speed = 0;
+    for point in &mut merged {
+        if point.speed < max_speed {
+            println!(
+                "{}风扇曲线点已自动修正: temp {} speed {}->{}",
+                side, point.temperature, point.speed, max_speed
+            );
+            point.speed = max_speed;
+        } else {
+            max_speed = point.speed;
+        }
+    }
+
+    merged
 }
 
 pub fn find_speed_for_temp(curve: &[FanPoint], temp_now: i64, side: &str) -> Option<i64> {
