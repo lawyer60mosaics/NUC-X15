@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "build:datetime": "node build-with-date.js"
+    "build:datetime": "node build-with-date.js",
+    "package:time": "node build-with-date.js"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.1",

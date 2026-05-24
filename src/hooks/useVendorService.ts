@@ -108,12 +108,17 @@ export function useVendorService(showToast: (msg: string) => void) {
         r,
         g,
         b,
-        keyboard_brightness: Number(kbBright),
-        lightbar_brightness: Number(lbBright),
-        lightbar_breathing: breathing,
+        keyboardBrightness: Number(kbBright),
+        lightbarBrightness: Number(lbBright),
       });
 
       if (res) {
+        if (res.status && res.status.ok === false) {
+          const errors = Array.isArray(res.status.errors) && res.status.errors.length > 0
+            ? `: ${res.status.errors.join('; ')}`
+            : '';
+          throw new Error(`${res.status.detail || '厂商服务未确认灯效写入'}${errors}`);
+        }
         setLightingColor(rgbToHex(res.r ?? r, res.g ?? g, res.b ?? b));
         setKeyboardBrightness(res.keyboard_brightness ?? kbBright);
         setLightbarBrightness(res.lightbar_brightness ?? lbBright);

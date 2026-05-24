@@ -12,6 +12,7 @@ use std::{
 
 use serde_json::Value;
 use tauri::{
+    image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
     Manager,
@@ -197,9 +198,7 @@ fn run_external_sentinel_tray(parent_pid: u32, app_exe: Option<PathBuf>) {
                 .menu(&menu)
                 .tooltip(format!("NUCtool 哨兵：正在监控 PID {}", parent_pid))
                 .show_menu_on_left_click(true);
-            if let Some(icon) = app.default_window_icon() {
-                tray_builder = tray_builder.icon(icon.clone());
-            }
+            tray_builder = tray_builder.icon(sentinel_tray_icon());
 
             let app_exe_for_menu = app_exe_for_setup.clone();
             let _tray = tray_builder
@@ -247,6 +246,10 @@ fn run_external_sentinel_tray(parent_pid: u32, app_exe: Option<PathBuf>) {
     }
 }
 
+fn sentinel_tray_icon() -> Image<'static> {
+    Image::new(include_bytes!("../../icons/sentinel-tray.rgba"), 32, 32)
+}
+
 fn run_external_sentinel(parent_pid: u32, app_exe: Option<PathBuf>) {
     app_log(
         "external_sentinel",
@@ -286,17 +289,36 @@ fn run_external_sentinel(parent_pid: u32, app_exe: Option<PathBuf>) {
             .and_then(|modified| now_ms_u64().checked_sub(modified));
         let heartbeat_belongs_to_parent = heartbeat.owner_pid == Some(parent_pid);
 
-        if heartbeat
-            .owner_pid
-            .is_some_and(|owner_pid| owner_pid != parent_pid)
-        {
-            app_log(
-                "external_sentinel",
-                "info",
-                "superseded_exit",
-                format!("parent_pid={} last_heartbeat={:?}", parent_pid, heartbeat),
-            );
-            return;
+        if let Some(owner_pid) = heartbeat.owner_pid {
+            if owner_pid != parent_pid {
+                if boot.elapsed() < Duration::from_millis(STARTUP_GRACE_MS) {
+                    continue;
+                }
+
+                if process_alive(owner_pid) {
+                    app_log(
+                        "external_sentinel",
+                        "info",
+                        "superseded_exit",
+                        format!(
+                            "parent_pid={} heartbeat_owner_pid={} last_heartbeat={:?}",
+                            parent_pid, owner_pid, heartbeat
+                        ),
+                    );
+                    return;
+                }
+
+                app_log(
+                    "external_sentinel",
+                    "info",
+                    "stale_heartbeat_owner_ignored",
+                    format!(
+                        "parent_pid={} stale_owner_pid={} last_heartbeat={:?}",
+                        parent_pid, owner_pid, heartbeat
+                    ),
+                );
+                continue;
+            }
         }
 
         if !parent_alive {

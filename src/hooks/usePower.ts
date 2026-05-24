@@ -14,6 +14,46 @@ export interface PowerProfile {
   desc: string;
 }
 
+export interface DisplaySceneProfile {
+  label: string;
+  subtitle: string;
+  target: string;
+  desc: string;
+}
+
+export const DISPLAY_SCENE_PROFILES: Record<string, DisplaySceneProfile> = {
+  reading: {
+    label: '阅读',
+    subtitle: '低扫描感',
+    target: '60Hz',
+    desc: '优先 60Hz，减少长文档滚动和白底页面的视觉刺激。',
+  },
+  video: {
+    label: '视频',
+    subtitle: '帧率整除',
+    target: '60/120Hz',
+    desc: '优先 60 或 120Hz，兼顾在线视频、电影播放和功耗。',
+  },
+  gaming: {
+    label: '游戏',
+    subtitle: '最低延迟',
+    target: '最高 Hz',
+    desc: '切换到面板支持的最高刷新率，适合游戏和高响应操作。',
+  },
+  office: {
+    label: '办公',
+    subtitle: '顺滑省电',
+    target: '90/60Hz',
+    desc: '优先 90Hz，找不到时回落 60Hz，适合日常办公。',
+  },
+  standard: {
+    label: '标准',
+    subtitle: '通用档位',
+    target: '60/90/120Hz',
+    desc: '恢复到通用刷新率档位，适合不确定场景时使用。',
+  },
+};
+
 export const CPU_POWER_PROFILES: Record<string, PowerProfile> = {
   performance: {
     label: '最佳性能',
@@ -67,6 +107,8 @@ export function usePower(showToast: (msg: string) => void) {
   const [supportedHz, setSupportedHz] = useState<number[]>([60]);
   const [displayDevices, setDisplayDevices] = useState<string[]>([]);
   const [displayDetail, setDisplayDetail] = useState<string>('--');
+  const [displaySceneMode, setDisplaySceneMode] = useState<string>('standard');
+  const [displaySceneDetail, setDisplaySceneDetail] = useState<string>('等待屏幕场景调校');
 
   // 防冲突队列与繁忙状态
   const [busy, setBusy] = useState(false);
@@ -135,8 +177,9 @@ export function usePower(showToast: (msg: string) => void) {
   const applyTdpLimits = useCallback((pl1: number, pl2: number, gpl1: number, gpl2: number) => {
     const job = async () => {
       try {
-        await invokeBackend('set_tdp', { payload: [pl1, pl2, gpl1, gpl2, 0] });
-        await invokeBackend('lock_tdp', { payload: [pl1, pl2, gpl1, gpl2, 0] });
+        const t = { cpu1: pl1, cpu2: pl2, gpu1: gpl1, gpu2: gpl2, tcc: 0 };
+        await invokeBackend('set_tdp', { t });
+        await invokeBackend('lock_tdp', { t });
         setCpuPl1(pl1);
         setCpuPl2(pl2);
         setGpuPl1(gpl1);
@@ -159,8 +202,9 @@ export function usePower(showToast: (msg: string) => void) {
         setPowerMode(mode);
         // 先调用系统 profile 写功耗，再执行 lock
         await invokeBackend('apply_system_power_profile', { mode });
-        await invokeBackend('set_tdp', { payload: [profile.cpu1, profile.cpu2, profile.gpu1, profile.gpu2, 0] });
-        await invokeBackend('lock_tdp', { payload: [profile.cpu1, profile.cpu2, profile.gpu1, profile.gpu2, 0] });
+        const t = { cpu1: profile.cpu1, cpu2: profile.cpu2, gpu1: profile.gpu1, gpu2: profile.gpu2, tcc: 0 };
+        await invokeBackend('set_tdp', { t });
+        await invokeBackend('lock_tdp', { t });
         
         setCpuPl1(profile.cpu1);
         setCpuPl2(profile.cpu2);
@@ -191,6 +235,30 @@ export function usePower(showToast: (msg: string) => void) {
     }
   }, [showToast]);
 
+  const applyDisplayScene = useCallback(async (mode: string) => {
+    const profile = DISPLAY_SCENE_PROFILES[mode];
+    if (!profile) return;
+
+    setBusy(true);
+    try {
+      const res = await invokeBackend('apply_display_scene_profile', { mode });
+      setDisplaySceneMode(mode);
+      if (res) {
+        setCurrentHz(res.current_hz || currentHz);
+        setSupportedHz(res.supported_hz || supportedHz);
+        const note = Array.isArray(res.notes) && res.notes.length > 0 ? ` · ${res.notes[0]}` : '';
+        setDisplaySceneDetail(`${res.label || profile.label} ${res.current_hz || profile.target}${note}`);
+      } else {
+        setDisplaySceneDetail(profile.desc);
+      }
+      showToast(`已切换屏幕场景: ${profile.label}`);
+    } catch (e: any) {
+      showToast(`屏幕场景切换失败: ${e.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [currentHz, supportedHz, showToast]);
+
   // 初始化时轮询一次数据
   useEffect(() => {
     refreshTdp();
@@ -214,10 +282,13 @@ export function usePower(showToast: (msg: string) => void) {
     supportedHz,
     displayDevices,
     displayDetail,
+    displaySceneMode,
+    displaySceneDetail,
     busy,
     applyTdpLimits,
     applyPowerMode,
     applyDisplayHz,
+    applyDisplayScene,
     refreshTdp,
     refreshDisplayHz,
   };

@@ -50,7 +50,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({
           left: '-150%',
           width: '60%',
           height: '100%',
-          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.035), transparent)',
+          background: 'linear-gradient(90deg, transparent, var(--glass-glint), transparent)',
           transform: 'skewX(-28deg)',
           pointerEvents: 'none',
           animation: 'shimmerGlint 12s ease-in-out infinite',

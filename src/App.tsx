@@ -27,7 +27,9 @@ export const App: React.FC = () => {
   const fanCtrl = useFanControl(showToast);
   const powerCtrl = usePower(showToast);
   const vendorCtrl = useVendorService(showToast);
-  const diagCtrl = useDiagnostics(showToast);
+  const getFanPayload = useCallback(() => fanCtrl.buildPayload(), [fanCtrl.buildPayload]);
+  const getFanRunning = useCallback(() => fanCtrl.running, [fanCtrl.running]);
+  const diagCtrl = useDiagnostics(showToast, getFanPayload, getFanRunning);
 
   // 3. 全局切页 Tab 状态
   const [activeTab, setActiveTab] = useState<string>('overview');
@@ -35,7 +37,7 @@ export const App: React.FC = () => {
   const tabs: TabItem[] = [
     { id: 'overview', label: '温控矩阵', subtitle: '拖拽曲线 · 恒速接管', index: 1 },
     { id: 'power', label: '功耗外设', subtitle: 'TDP调节 · RGB星云 · 养护', index: 2 },
-    { id: 'monitor', label: '诊断监控', subtitle: '实时趋势 · 诊断控制台', index: 3 },
+    { id: 'monitor', label: '诊断哨兵', subtitle: '哨兵测试 · 日志', index: 3 },
   ];
 
   // 4. 让 selectedScenario 与全局 HTML 属性联动，触发 theme.css 中的液态光晕流转
@@ -43,18 +45,33 @@ export const App: React.FC = () => {
     document.documentElement.setAttribute('data-scenario', fanCtrl.selectedScenario);
   }, [fanCtrl.selectedScenario]);
 
+  useEffect(() => {
+    const syncTimeTheme = () => {
+      const hour = new Date().getHours();
+      const theme = hour >= 7 && hour < 18 ? 'day' : 'night';
+      document.documentElement.setAttribute('data-time-theme', theme);
+    };
+
+    syncTimeTheme();
+    const timer = window.setInterval(syncTimeTheme, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <div 
       style={{ 
-        minHeight: '100vh', 
+        minHeight: '100dvh', 
+        height: 'auto',
         padding: '24px', 
         display: 'flex', 
         flexDirection: 'column', 
         gap: '20px', 
         position: 'relative',
         zIndex: 1,
-        maxWidth: '1200px',
+        width: '100%',
+        maxWidth: 'none',
         margin: '0 auto',
+        overflow: 'visible',
       }}
     >
       {/* 炫彩流体背景定位光圈 (配合 theme.css 动画) */}
@@ -80,9 +97,9 @@ export const App: React.FC = () => {
           <div 
             key={toast.id} 
             style={{
-              background: 'rgba(4, 8, 18, 0.88)',
+              background: 'var(--surface-toast)',
               backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
+              border: '1px solid var(--border-strong)',
               borderRadius: '12px',
               padding: '12px 20px',
               color: '#ffffff',
@@ -133,7 +150,7 @@ export const App: React.FC = () => {
                 fontWeight: 900, 
                 fontFamily: 'var(--font-display)', 
                 letterSpacing: '-0.02em',
-                background: 'linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.6) 100%)',
+                background: 'var(--brand-title-gradient)',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
               }}
@@ -145,7 +162,7 @@ export const App: React.FC = () => {
             </span>
           </div>
 
-          <div style={{ height: '14px', width: '1px', background: 'rgba(255,255,255,0.12)' }} />
+          <div style={{ height: '14px', width: '1px', background: 'var(--divider-color)' }} />
 
           {/* 实时状态胶囊 */}
           <div 
@@ -153,10 +170,10 @@ export const App: React.FC = () => {
               display: 'flex', 
               alignItems: 'center', 
               gap: '6px', 
-              background: 'rgba(0,0,0,0.14)', 
+              background: 'var(--surface-sunken)', 
               padding: '4px 10px', 
               borderRadius: '99px',
-              border: '1px solid rgba(255,255,255,0.03)',
+              border: '1px solid var(--border-muted)',
             }}
           >
             <span 
@@ -186,7 +203,7 @@ export const App: React.FC = () => {
             style={{
               background: fanCtrl.running ? 'rgba(255, 69, 58, 0.15)' : 'var(--accent-color)',
               border: fanCtrl.running ? '1px solid rgba(255, 69, 58, 0.3)' : 'none',
-              color: fanCtrl.running ? '#ff453a' : '#040812',
+              color: fanCtrl.running ? 'var(--text-danger)' : 'var(--text-inverse)',
               borderRadius: '10px',
               padding: '6px 14px',
               fontSize: '11px',
@@ -232,7 +249,7 @@ export const App: React.FC = () => {
         <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '12px', fontWeight: 700, letterSpacing: '0.05em' }}>
           ENVIRONMENT SCENARIO SELECTOR
         </span>
-        <div style={{ display: 'flex', gap: '6px', flex: 1, justifySelf: 'end', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: '6px', flex: 1, justifySelf: 'end', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           {Object.keys(SCENARIOS).map((key) => {
             const sc = SCENARIOS[key];
             const isSelected = fanCtrl.selectedScenario === key;
@@ -251,9 +268,9 @@ export const App: React.FC = () => {
                   }
                 }}
                 style={{
-                  background: isSelected ? 'var(--accent-color)' : 'rgba(255,255,255,0.03)',
-                  border: isSelected ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(255,255,255,0.04)',
-                  color: isSelected ? '#040812' : 'var(--text-secondary)',
+                  background: isSelected ? 'var(--accent-color)' : 'var(--surface-muted)',
+                  border: isSelected ? '1px solid var(--border-soft)' : '1px solid var(--border-muted)',
+                  color: isSelected ? 'var(--text-inverse)' : 'var(--text-secondary)',
                   borderRadius: '10px',
                   padding: '6px 14px',
                   fontSize: '11px',
@@ -277,7 +294,7 @@ export const App: React.FC = () => {
       />
 
       {/* 中部核心功能卡片切页逻辑 */}
-      <main style={{ flex: 1 }}>
+      <main style={{ flex: '1 0 auto', minHeight: 0, overflow: 'visible' }}>
         {activeTab === 'overview' && (
           <OverviewSection
             cpuTemp={fanCtrl.cpuTemp}
@@ -319,7 +336,10 @@ export const App: React.FC = () => {
             currentHz={powerCtrl.currentHz}
             supportedHz={powerCtrl.supportedHz}
             displayDetail={powerCtrl.displayDetail}
+            displaySceneMode={powerCtrl.displaySceneMode}
+            displaySceneDetail={powerCtrl.displaySceneDetail}
             applyDisplayHz={powerCtrl.applyDisplayHz}
+            applyDisplayScene={powerCtrl.applyDisplayScene}
             powerBusy={powerCtrl.busy}
             whisperMode={vendorCtrl.whisperMode}
             setWhisperMode={vendorCtrl.setWhisperMode}
@@ -358,9 +378,9 @@ export const App: React.FC = () => {
       </main>
 
       {/* 页脚 */}
-      <footer style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '20px', padding: '10px 0' }}>
+      <footer style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '20px', padding: '10px 0' }}>
         <span>NUCtool Matrix System v2.6.0-React</span>
-        <span>Made with ❤️ under advanced agentic pairing</span>
+        <span>Advanced agentic pairing</span>
       </footer>
     </div>
   );

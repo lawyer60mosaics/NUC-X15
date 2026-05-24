@@ -31,9 +31,10 @@ use commands::{
         start_fan_control, stop_fan_control, update_fan_policy,
     },
     tdp::{
-        apply_system_power_profile, get_display_refresh_status, get_rgb, get_rgb_color, get_tdp,
-        lock_cpu_tdp, lock_tdp, set_cpu_tdp, set_display_refresh_rate, set_gpu_clock_limit,
-        set_rgb, set_rgb_color_n, set_rgb_color_y, set_tdp,
+        apply_display_scene_profile, apply_system_power_profile, get_display_refresh_status,
+        get_rgb, get_rgb_color, get_tdp, lock_cpu_tdp, lock_tdp, set_cpu_tdp,
+        set_display_refresh_rate, set_gpu_clock_limit, set_rgb, set_rgb_color_n, set_rgb_color_y,
+        set_tdp,
     },
     vendor::{
         apply_vendor_battery, apply_vendor_lighting, apply_vendor_whisper,
@@ -195,6 +196,7 @@ fn main() {
             apply_system_power_profile,
             get_display_refresh_status,
             set_display_refresh_rate,
+            apply_display_scene_profile,
             set_gpu_clock_limit,
             set_rgb,
             get_rgb,

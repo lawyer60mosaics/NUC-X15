@@ -47,7 +47,7 @@ export const LiquidSlider: React.FC<LiquidSliderProps> = ({
             width: '100%',
             height: '6px',
             borderRadius: '99px',
-            background: 'rgba(255,255,255,0.06)',
+            background: 'var(--progress-track)',
             pointerEvents: 'none',
           }}
         />

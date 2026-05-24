@@ -2,6 +2,7 @@ import React from 'react';
 import GlassCard from './GlassCard';
 import LiquidSlider from './LiquidSlider';
 import { CurvePoint } from '../hooks/useFanControl';
+import { useThemeTokens } from '../hooks/useThemeTokens';
 
 // Chart.js 核心注册
 import {
@@ -75,6 +76,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
   actorStateText,
   lastSampledTime,
 }) => {
+  const theme = useThemeTokens();
   
   // 提取 X 轴刻度 (温度值)
   const chartLabels = cpuCurve.map(pt => `${pt.temperature}°C`);
@@ -123,14 +125,12 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
   const chartOptions: any = {
     responsive: true,
     maintainAspectRatio: false,
-    animation: {
-      duration: 200,
-    },
+    animation: false,
     plugins: {
       legend: {
         display: true,
         labels: {
-          color: 'rgba(255,255,255,0.7)',
+          color: theme.chartTick,
           font: { family: 'var(--font-sans)', size: 12, weight: 600 },
           boxWidth: 10,
           boxHeight: 10,
@@ -139,12 +139,12 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
         }
       },
       tooltip: {
-        backgroundColor: 'rgba(4, 8, 18, 0.85)',
+        backgroundColor: theme.chartTooltipBg,
         backdropFilter: 'blur(10px)',
-        titleColor: '#ffffff',
+        titleColor: theme.chartTooltipText,
         titleFont: { weight: 'bold' },
-        bodyColor: 'rgba(255,255,255,0.85)',
-        borderColor: 'rgba(255,255,255,0.1)',
+        bodyColor: theme.chartTooltipText,
+        borderColor: theme.borderSoft,
         borderWidth: 1,
         padding: 10,
         cornerRadius: 8,
@@ -182,16 +182,16 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
     },
     scales: {
       x: {
-        grid: { color: 'rgba(255,255,255,0.03)' },
-        ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 10, family: 'var(--font-sans)' } },
+        grid: { color: theme.chartGrid },
+        ticks: { color: theme.chartTick, font: { size: 10, family: 'var(--font-sans)' } },
         title: { display: false }
       },
       y: {
         min: 0,
         max: 100,
-        grid: { color: 'rgba(255,255,255,0.04)' },
+        grid: { color: theme.chartGrid },
         ticks: { 
-          color: 'rgba(255,255,255,0.4)', 
+          color: theme.chartTick, 
           font: { size: 10, family: 'var(--font-display)' },
           callback: (value: any) => `${value}%`
         },
@@ -204,19 +204,19 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       
       {/* 顶部三维数字仪表盘卡片组 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '16px' }}>
         
         {/* CPU 温度卡 */}
         <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.08em' }}>CPU TEMPERATURE</div>
           <div style={{ display: 'flex', alignItems: 'baseline', marginTop: '6px' }}>
-            <span style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'var(--font-display)', color: cpuTemp !== '--' && cpuTemp > 80 ? '#ff453a' : 'var(--text-primary)' }}>
+            <span style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'var(--font-display)', color: cpuTemp !== '--' && cpuTemp > 80 ? 'var(--text-danger)' : 'var(--text-primary)' }}>
               {cpuTemp}
             </span>
             <span style={{ fontSize: '14px', marginLeft: '2px', color: 'var(--text-secondary)', fontWeight: 700 }}>°C</span>
           </div>
           {/* 流体进度条指示器 */}
-          <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '99px', marginTop: '10px', overflow: 'hidden' }}>
+          <div style={{ width: '100%', height: '4px', background: 'var(--progress-track)', borderRadius: '99px', marginTop: '10px', overflow: 'hidden' }}>
             <div 
               style={{ 
                 height: '100%', 
@@ -233,12 +233,12 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
         <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.08em' }}>GPU TEMPERATURE</div>
           <div style={{ display: 'flex', alignItems: 'baseline', marginTop: '6px' }}>
-            <span style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'var(--font-display)', color: gpuTemp !== '--' && gpuTemp > 80 ? '#ff453a' : 'var(--text-primary)' }}>
+            <span style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'var(--font-display)', color: gpuTemp !== '--' && gpuTemp > 80 ? 'var(--text-danger)' : 'var(--text-primary)' }}>
               {gpuTemp}
             </span>
             <span style={{ fontSize: '14px', marginLeft: '2px', color: 'var(--text-secondary)', fontWeight: 700 }}>°C</span>
           </div>
-          <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '99px', marginTop: '10px', overflow: 'hidden' }}>
+          <div style={{ width: '100%', height: '4px', background: 'var(--progress-track)', borderRadius: '99px', marginTop: '10px', overflow: 'hidden' }}>
             <div 
               style={{ 
                 height: '100%', 
@@ -260,7 +260,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
             </span>
             <span style={{ fontSize: '12px', marginLeft: '3px', color: 'var(--text-secondary)', fontWeight: 700 }}>RPM</span>
           </div>
-          <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '99px', marginTop: '10px', overflow: 'hidden' }}>
+          <div style={{ width: '100%', height: '4px', background: 'var(--progress-track)', borderRadius: '99px', marginTop: '10px', overflow: 'hidden' }}>
             <div 
               style={{ 
                 height: '100%', 
@@ -282,7 +282,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
             </span>
             <span style={{ fontSize: '12px', marginLeft: '3px', color: 'var(--text-secondary)', fontWeight: 700 }}>RPM</span>
           </div>
-          <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '99px', marginTop: '10px', overflow: 'hidden' }}>
+          <div style={{ width: '100%', height: '4px', background: 'var(--progress-track)', borderRadius: '99px', marginTop: '10px', overflow: 'hidden' }}>
             <div 
               style={{ 
                 height: '100%', 
@@ -298,7 +298,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
       </div>
 
       {/* 主面板：曲线拖拽编辑器 + 恒速设置 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: '20px', alignItems: 'start' }}>
         
         {/* 左侧：可拖动温控曲线 */}
         <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', height: '360px' }}>
@@ -331,8 +331,8 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                     width: '36px',
                     height: '20px',
                     borderRadius: '99px',
-                    background: constantSpeedEnabled ? 'var(--accent-color)' : 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: constantSpeedEnabled ? 'var(--accent-color)' : 'var(--control-bg)',
+                    border: '1px solid var(--control-border)',
                     position: 'relative',
                     transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                   }}
@@ -379,8 +379,8 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                     width: '36px',
                     height: '20px',
                     borderRadius: '99px',
-                    background: startupTakeoverEnabled ? 'var(--accent-color)' : 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: startupTakeoverEnabled ? 'var(--accent-color)' : 'var(--control-bg)',
+                    border: '1px solid var(--control-border)',
                     position: 'relative',
                     transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                   }}
@@ -413,8 +413,8 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                 onClick={toggleControl}
                 style={{
                   flex: 1,
-                  background: running ? '#ff453a' : 'var(--accent-color)',
-                  color: running ? '#ffffff' : '#040812',
+                  background: running ? 'var(--text-danger)' : 'var(--accent-color)',
+                  color: running ? '#ffffff' : 'var(--text-inverse)',
                   border: 'none',
                   borderRadius: '10px',
                   padding: '10px',
@@ -433,8 +433,8 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                 onClick={loadConfig}
                 style={{
                   flex: 1,
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.06)',
+                  background: 'var(--surface-muted)',
+                  border: '1px solid var(--border-muted)',
                   color: 'var(--text-primary)',
                   borderRadius: '8px',
                   padding: '8px',
@@ -450,8 +450,8 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                 onClick={saveConfig}
                 style={{
                   flex: 1,
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.06)',
+                  background: 'var(--surface-muted)',
+                  border: '1px solid var(--border-muted)',
                   color: 'var(--text-primary)',
                   borderRadius: '8px',
                   padding: '8px',
@@ -465,7 +465,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
               </button>
             </div>
 
-            <hr style={{ border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)', margin: '4px 0' }} />
+            <hr style={{ border: 'none', borderBottom: '1px solid var(--divider-color)', margin: '4px 0' }} />
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-secondary)', opacity: 0.7 }}>
               <span>看门狗哨兵: <strong style={{ color: running ? '#30d158' : '#8e8e93' }}>{actorStateText}</strong></span>

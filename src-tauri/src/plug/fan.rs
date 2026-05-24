@@ -15,7 +15,7 @@ use std::{
 use tauri::{Emitter, Manager, Window};
 
 use crate::plug::{
-    config::get_monitor_log_file_path,
+    config::{default_fan_data, get_monitor_log_file_path},
     constants::{
         FAN_RAMP_STEP, FAN_RAMP_STEP_DOWN, FAST_RAMP_UP, MAX_FAN_SPEED_PERCENT,
         MAX_MONITOR_SAMPLE_INTERVAL_MS, MAX_SENSOR_RPM, MAX_TEMP_LIMIT,
@@ -2534,15 +2534,31 @@ pub async fn start_fan_control(window: Window, fan_data: serde_json::Value) -> R
 #[tauri::command]
 pub async fn force_fan_sentinel_restart(
     window: Window,
-    fan_data: serde_json::Value,
+    fan_data: Option<serde_json::Value>,
 ) -> Result<String, String> {
     clear_hardware_unavailable("manual_sentinel_test");
 
-    let fan_data: FanData = match serde_json::from_value(fan_data) {
-        Ok(v) => v,
-        Err(e) => {
-            println!("风扇配置解析失败: {}", e);
-            return Err(format!("配置解析失败: {}", e));
+    let fan_data: FanData = match fan_data {
+        Some(value) if !value.is_null() => match serde_json::from_value(value) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("风扇配置解析失败: {}", e);
+                return Err(format!("配置解析失败: {}", e));
+            }
+        },
+        _ => {
+            let fallback = LAST_RUNTIME
+                .read()
+                .ok()
+                .and_then(|runtime| runtime.as_ref().map(|(fan_data, _)| fan_data.clone()))
+                .unwrap_or_else(default_fan_data);
+            app_log(
+                "fan_sentinel",
+                "warn",
+                "manual_test.fallback_config",
+                format!("mode={}", fallback.control.mode.as_str()),
+            );
+            fallback
         }
     };
 

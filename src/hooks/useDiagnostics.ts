@@ -29,7 +29,11 @@ export interface LogEntry {
 
 const MAX_FRONTEND_LOGS = 80;
 
-export function useDiagnostics(showToast: (msg: string) => void) {
+export function useDiagnostics(
+  showToast: (msg: string) => void,
+  getFanPayload?: () => any,
+  getFanRunning?: () => boolean,
+) {
   // 诊断汇总
   const [summary, setSummary] = useState<DiagnosticSummary | null>(null);
 
@@ -54,13 +58,14 @@ export function useDiagnostics(showToast: (msg: string) => void) {
   // 手动测试哨兵卡死自愈
   const runSentinelTest = useCallback(async () => {
     try {
-      const res = await invokeBackend('force_fan_sentinel_restart');
+      const fanData = getFanPayload?.();
+      const res = await invokeBackend('force_fan_sentinel_restart', { fanData });
       showToast(res || '自愈哨兵测试命令已下发。');
       await refreshSummary();
     } catch (e: any) {
       showToast(`自愈测试触发失败: ${e.message || e}`);
     }
-  }, [refreshSummary, showToast]);
+  }, [getFanPayload, refreshSummary, showToast]);
 
   // 新增日志行
   const pushLog = useCallback((level: string, tag: string, msg: string) => {
@@ -101,7 +106,15 @@ export function useDiagnostics(showToast: (msg: string) => void) {
     const heartbeatTimer = setInterval(async () => {
       try {
         heartbeatSeq.current += 1;
-        await invokeBackend('frontend_heartbeat', { seq: heartbeatSeq.current });
+        await invokeBackend('frontend_heartbeat', {
+          seq: heartbeatSeq.current,
+          visible: typeof document === 'undefined' ? true : !document.hidden,
+          focused: typeof document !== 'undefined' && typeof document.hasFocus === 'function'
+            ? document.hasFocus()
+            : false,
+          reason: 'interval',
+          running: getFanRunning?.() ?? false,
+        });
       } catch (e) {
         // ignore heartbeat errors in background
       }
@@ -119,7 +132,7 @@ export function useDiagnostics(showToast: (msg: string) => void) {
       clearInterval(heartbeatTimer);
       clearInterval(diagTimer);
     };
-  }, [refreshSummary, pushLog]);
+  }, [getFanRunning, refreshSummary, pushLog]);
 
   return {
     summary,

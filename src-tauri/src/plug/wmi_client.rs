@@ -134,9 +134,7 @@ impl WmiClient {
                 Err("WMI helper call timed out".to_string())
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                eprintln!(
-                    "WMI IPC channel disconnected. Killing child for self-healing recovery."
-                );
+                eprintln!("WMI IPC channel disconnected. Killing child for self-healing recovery.");
                 app_log(
                     "wmi_client",
                     "error",

@@ -57,6 +57,16 @@ pub struct DisplayRefreshStatus {
     pub devices: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DisplaySceneApplyResult {
+    pub mode: String,
+    pub label: String,
+    pub current_hz: u32,
+    pub supported_hz: Vec<u32>,
+    pub detail: String,
+    pub notes: Vec<String>,
+}
+
 #[cfg(windows)]
 #[derive(Clone, Copy)]
 struct SystemPowerProfile {
@@ -93,6 +103,14 @@ const DISPLAY_RECOVERY_RELOAD_DELAY: Duration = Duration::from_millis(1500);
 
 #[cfg(windows)]
 static DISPLAY_COMMAND_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+struct DisplaySceneProfile {
+    label: &'static str,
+    candidates: &'static [u32],
+    highest: bool,
+    notes: &'static [&'static str],
+}
 
 #[cfg(windows)]
 struct DisplayCommandGuard;
@@ -656,6 +674,78 @@ fn set_highest_display_refresh_rate() -> Result<String, String> {
 }
 
 #[cfg(windows)]
+fn display_scene_profile(mode: &str) -> Option<DisplaySceneProfile> {
+    match mode {
+        "reading" => Some(DisplaySceneProfile {
+            label: "阅读",
+            candidates: &[60],
+            highest: false,
+            notes: &["降低刷新率以减少频繁扫描感；建议配合系统夜间模式或较低亮度。"],
+        }),
+        "video" => Some(DisplaySceneProfile {
+            label: "视频",
+            candidates: &[120, 60],
+            highest: false,
+            notes: &["优先选择 60/120Hz，兼顾视频帧率整除与功耗。"],
+        }),
+        "gaming" => Some(DisplaySceneProfile {
+            label: "游戏",
+            candidates: &[],
+            highest: true,
+            notes: &["切到面板支持的最高刷新率，减少操作延迟。"],
+        }),
+        "office" => Some(DisplaySceneProfile {
+            label: "办公",
+            candidates: &[90, 60],
+            highest: false,
+            notes: &["优先 90Hz，兼顾顺滑滚动和日常功耗。"],
+        }),
+        "standard" => Some(DisplaySceneProfile {
+            label: "标准",
+            candidates: &[90, 60, 120],
+            highest: false,
+            notes: &["恢复到通用刷新率档位，适合多数桌面使用。"],
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(windows)]
+fn apply_display_scene_profile_blocking(mode: &str) -> Result<DisplaySceneApplyResult, String> {
+    let profile = display_scene_profile(mode)
+        .ok_or_else(|| format!("unknown display scene profile: {}", mode))?;
+    let status = if profile.highest {
+        set_display_refresh_rate_by_selector(|rates| rates.iter().max().copied())
+    } else {
+        set_display_refresh_rate_by_selector(|rates| {
+            profile
+                .candidates
+                .iter()
+                .copied()
+                .find(|candidate| rates.contains(candidate))
+                .or_else(|| {
+                    let max_candidate = profile.candidates.iter().copied().max()?;
+                    rates
+                        .iter()
+                        .copied()
+                        .filter(|rate| *rate <= max_candidate)
+                        .max()
+                })
+                .or_else(|| rates.iter().min().copied())
+        })
+    }?;
+
+    Ok(DisplaySceneApplyResult {
+        mode: mode.to_string(),
+        label: profile.label.to_string(),
+        current_hz: status.current_hz,
+        supported_hz: status.supported_hz,
+        detail: status.detail,
+        notes: profile.notes.iter().map(|note| note.to_string()).collect(),
+    })
+}
+
+#[cfg(windows)]
 fn set_display_refresh_rate_by_selector<F>(selector: F) -> Result<DisplayRefreshStatus, String>
 where
     F: Fn(&[u32]) -> Option<u32>,
@@ -815,6 +905,40 @@ pub async fn set_display_refresh_rate(
         "command",
         if result.is_ok() { "info" } else { "warn" },
         "set_display_refresh_rate.done",
+        format!("{:?}", result),
+    );
+    if let Ok(status) = &result {
+        schedule_display_recovery_reload(app, status.detail.clone());
+    }
+    result
+}
+
+#[cfg(windows)]
+#[tauri::command]
+pub async fn apply_display_scene_profile(
+    app: AppHandle,
+    mode: String,
+) -> Result<DisplaySceneApplyResult, String> {
+    let normalized = mode.to_ascii_lowercase();
+    app_log(
+        "command",
+        "info",
+        "apply_display_scene_profile.start",
+        format!("mode={}", normalized),
+    );
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        run_display_task_with_timeout(
+            "apply_display_scene_profile",
+            DISPLAY_SET_TIMEOUT,
+            move || apply_display_scene_profile_blocking(&normalized),
+        )
+    })
+    .await
+    .map_err(|e| format!("display scene profile task failed: {}", e))?;
+    app_log(
+        "command",
+        if result.is_ok() { "info" } else { "warn" },
+        "apply_display_scene_profile.done",
         format!("{:?}", result),
     );
     if let Ok(status) = &result {
@@ -1145,6 +1269,12 @@ pub async fn get_display_refresh_status() -> Result<DisplayRefreshStatus, String
 #[cfg(unix)]
 pub async fn set_display_refresh_rate(_hz: u32) -> Result<DisplayRefreshStatus, String> {
     Err("Display refresh control is currently implemented for Windows only".to_string())
+}
+
+#[tauri::command]
+#[cfg(unix)]
+pub async fn apply_display_scene_profile(_mode: String) -> Result<DisplaySceneApplyResult, String> {
+    Err("Display scene profiles are currently implemented for Windows only".to_string())
 }
 
 #[tauri::command]

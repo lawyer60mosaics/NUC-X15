@@ -1,0 +1,10 @@
+
+> nuctool-frontend@1.0.3 dev
+> vite --host 127.0.0.1 --port 5173
+
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m855[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m15:01:29[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc-tauri/target/release/build/NUCtool-62bfe9841d8d0c7a/out/tauri-codegen-assets/e31ea7b1ecc839aa2f3bd8fcb4ae1f9091346d6c832ab13a38e7224e91373bf1.html[22m

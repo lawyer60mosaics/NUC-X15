@@ -3,7 +3,7 @@ import GlassCard from './GlassCard';
 import LiquidSlider from './LiquidSlider';
 import ColorCirclePicker from './ColorCirclePicker';
 
-import { CPU_POWER_PROFILES } from '../hooks/usePower';
+import { CPU_POWER_PROFILES, DISPLAY_SCENE_PROFILES } from '../hooks/usePower';
 
 interface PowerSectionProps {
   // usePower hook variables
@@ -21,7 +21,10 @@ interface PowerSectionProps {
   currentHz: number;
   supportedHz: number[];
   displayDetail: string;
+  displaySceneMode: string;
+  displaySceneDetail: string;
   applyDisplayHz: (hz: number) => void;
+  applyDisplayScene: (mode: string) => void;
   powerBusy: boolean;
 
   // useVendorService hook variables
@@ -62,7 +65,10 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
   currentHz,
   supportedHz,
   displayDetail,
+  displaySceneMode,
+  displaySceneDetail,
   applyDisplayHz,
+  applyDisplayScene,
   powerBusy,
 
   whisperMode,
@@ -101,8 +107,99 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
     applyBattery(mode, batteryLevel);
   };
 
+  const selectStyle: React.CSSProperties = {
+    width: '100%',
+    minWidth: 0,
+    height: '34px',
+    background: 'var(--control-bg)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--control-border)',
+    borderRadius: '8px',
+    padding: '0 10px',
+    fontSize: '12px',
+    fontWeight: 700,
+    outline: 'none',
+  };
+
+  const fieldLabelStyle: React.CSSProperties = {
+    display: 'block',
+    marginBottom: '6px',
+    fontSize: '10px',
+    color: 'var(--text-secondary)',
+    fontWeight: 800,
+    letterSpacing: '0.06em',
+  };
+
+  const batteryModes = [
+    { id: 'BestBattery', label: '养护 (60%)', level: 60 },
+    { id: 'Standard', label: '平衡 (80%)', level: 80 },
+    { id: 'FullCharge', label: '满电 (100%)', level: 100 },
+  ];
+
+  const displaySceneCard = (
+    <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+      <div>
+        <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+          屏幕场景调校 (Display Scenes)
+        </h3>
+        <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
+          检测到的活动显卡设备: <strong style={{ color: 'var(--text-primary)' }}>{displayDetail}</strong>
+        </p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '12px' }}>
+        <label>
+          <span style={fieldLabelStyle}>屏幕场景</span>
+          <select
+            value={displaySceneMode}
+            disabled={powerBusy}
+            onChange={(event) => applyDisplayScene(event.target.value)}
+            style={selectStyle}
+          >
+            {Object.keys(DISPLAY_SCENE_PROFILES).map((key) => {
+              const profile = DISPLAY_SCENE_PROFILES[key];
+              return (
+                <option key={key} value={key}>
+                  {profile.label} · {profile.target} · {profile.subtitle}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+
+        <label>
+          <span style={fieldLabelStyle}>刷新率</span>
+          <select
+            value={String(currentHz)}
+            disabled={powerBusy || supportedHz.length === 0}
+            onChange={(event) => applyDisplayHz(Number(event.target.value))}
+            style={selectStyle}
+          >
+            {supportedHz.map((hz) => (
+              <option key={hz} value={String(hz)}>
+                {hz}Hz
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'var(--surface-sunken)', border: '1px solid var(--border-muted)' }}>
+        <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.06em' }}>
+          当前屏幕场景
+        </div>
+        <div style={{ fontSize: '12px', color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.4 }}>
+          {displaySceneDetail}
+        </div>
+      </div>
+    </GlassCard>
+  );
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+      {displaySceneCard}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))', gap: '20px', alignItems: 'start', width: '100%' }}>
       
       {/* 左列：系统功耗与显卡 PL 配置 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -125,8 +222,8 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
                   key={key}
                   onClick={() => applyPowerMode(key)}
                   style={{
-                    background: isSelected ? 'var(--glass-gradient-hover)' : 'rgba(255,255,255,0.02)',
-                    border: isSelected ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255,255,255,0.04)',
+                    background: isSelected ? 'var(--glass-gradient-hover)' : 'var(--surface-muted)',
+                    border: isSelected ? '1px solid var(--border-strong)' : '1px solid var(--border-muted)',
                     boxShadow: isSelected ? '0 8px 24px rgba(0,0,0,0.25), 0 0 8px var(--accent-color-glow)' : 'none',
                     borderRadius: '12px',
                     padding: '12px 16px',
@@ -138,7 +235,7 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '14px', fontWeight: 800 }}>{profile.label}</span>
-                    <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', color: isSelected ? 'var(--accent-color)' : 'rgba(255,255,255,0.4)', fontWeight: 700 }}>
+                    <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', color: isSelected ? 'var(--accent-color)' : 'var(--text-tertiary)', fontWeight: 700 }}>
                       PL1: {profile.cpu1}W / PL2: {profile.cpu2}W
                     </span>
                   </div>
@@ -162,7 +259,7 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '16px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <LiquidSlider
                 label="CPU 持续功耗 PL1"
@@ -209,8 +306,8 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
               onClick={handleApplyTdp}
               disabled={powerBusy}
               style={{
-                background: powerBusy ? 'rgba(255,255,255,0.04)' : 'var(--accent-color)',
-                color: powerBusy ? 'var(--text-secondary)' : '#040812',
+                background: powerBusy ? 'var(--control-disabled-bg)' : 'var(--accent-color)',
+                color: powerBusy ? 'var(--text-secondary)' : 'var(--text-inverse)',
                 border: 'none',
                 borderRadius: '10px',
                 padding: '8px 16px',
@@ -223,47 +320,6 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
             >
               {powerBusy ? '排队写入中...' : '提交 PL 锁定'}
             </button>
-          </div>
-        </GlassCard>
-
-        {/* 模块：显示器与屏幕刷新率 */}
-        <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div>
-            <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              屏幕刷新率与超频 (Display Hz)
-            </h3>
-            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
-              检测到的活动显卡设备: <strong style={{ color: 'var(--text-primary)' }}>{displayDetail}</strong>
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>目标刷新率:</span>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              {supportedHz.map((hz) => {
-                const isActive = currentHz === hz;
-                return (
-                  <button
-                    key={hz}
-                    onClick={() => applyDisplayHz(hz)}
-                    disabled={powerBusy}
-                    style={{
-                      background: isActive ? 'var(--accent-color)' : 'rgba(255,255,255,0.03)',
-                      border: isActive ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(255,255,255,0.05)',
-                      color: isActive ? '#040812' : 'var(--text-secondary)',
-                      borderRadius: '8px',
-                      padding: '6px 12px',
-                      fontSize: '11px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                    }}
-                  >
-                    {hz}Hz
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </GlassCard>
 
@@ -298,32 +354,18 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
           </div>
 
           {/* Whisper 极静控温 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', background: 'rgba(0,0,0,0.12)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-muted)', borderRadius: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: '12px', alignItems: 'center' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Whisper 极静控温</span>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                {['Off', 'On'].map((mode) => {
-                  const isActive = whisperMode === mode;
-                  return (
-                    <button
-                      key={mode}
-                      onClick={() => handleApplyWhisper(mode)}
-                      style={{
-                        background: isActive ? 'var(--accent-color)' : 'rgba(255,255,255,0.04)',
-                        border: 'none',
-                        color: isActive ? '#040812' : 'var(--text-secondary)',
-                        borderRadius: '6px',
-                        padding: '4px 10px',
-                        fontSize: '11px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {mode === 'On' ? '开启' : '关闭'}
-                    </button>
-                  );
-                })}
-              </div>
+              <select
+                value={whisperMode}
+                disabled={vendorBusy}
+                onChange={(event) => handleApplyWhisper(event.target.value)}
+                style={selectStyle}
+              >
+                <option value="Off">关闭</option>
+                <option value="On">开启</option>
+              </select>
             </div>
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
@@ -350,39 +392,26 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
           </div>
 
           {/* 锂电养护阈值 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', background: 'rgba(0,0,0,0.12)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-muted)', borderRadius: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '12px', alignItems: 'center' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>锂电充电阈值控制</span>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                {[
-                  { id: 'BestBattery', label: '养护 (60%)', level: 60 },
-                  { id: 'Standard', label: '平衡 (80%)', level: 80 },
-                  { id: 'FullCharge', label: '满电 (100%)', level: 100 }
-                ].map((mode) => {
-                  const isActive = batteryMode === mode.id;
-                  return (
-                    <button
-                      key={mode.id}
-                      onClick={() => {
-                        setBatteryLevel(mode.level);
-                        handleApplyBattery(mode.id);
-                      }}
-                      style={{
-                        background: isActive ? 'var(--accent-color)' : 'rgba(255,255,255,0.04)',
-                        border: 'none',
-                        color: isActive ? '#040812' : 'var(--text-secondary)',
-                        borderRadius: '6px',
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {mode.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <select
+                value={batteryMode}
+                disabled={vendorBusy}
+                onChange={(event) => {
+                  const selected = batteryModes.find((mode) => mode.id === event.target.value);
+                  if (!selected) return;
+                  setBatteryLevel(selected.level);
+                  handleApplyBattery(selected.id);
+                }}
+                style={selectStyle}
+              >
+                {batteryModes.map((mode) => (
+                  <option key={mode.id} value={mode.id}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
@@ -410,6 +439,7 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
 
         </GlassCard>
 
+      </div>
       </div>
 
     </div>

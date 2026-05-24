@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import GlassCard from './GlassCard';
 import { DiagnosticSummary, LogEntry } from '../hooks/useDiagnostics';
+import { useThemeTokens } from '../hooks/useThemeTokens';
 
 // Chart.js 核心注册
 import {
@@ -47,6 +48,7 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
   runSentinelTest,
 }) => {
   const consoleEndRef = useRef<HTMLDivElement>(null);
+  const theme = useThemeTokens();
   
   // 维护滑动历史数据（25个点）
   const [historyPoints, setHistoryPoints] = useState<{
@@ -148,7 +150,7 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
       legend: {
         position: 'top',
         labels: {
-          color: 'rgba(255,255,255,0.7)',
+          color: theme.chartTick,
           font: { family: 'var(--font-sans)', size: 10, weight: 600 },
           boxWidth: 8,
           boxHeight: 8,
@@ -159,25 +161,25 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
       tooltip: {
         mode: 'index',
         intersect: false,
-        backgroundColor: 'rgba(4, 8, 18, 0.85)',
+        backgroundColor: theme.chartTooltipBg,
         backdropFilter: 'blur(10px)',
-        titleColor: '#ffffff',
-        bodyColor: 'rgba(255,255,255,0.85)',
-        borderColor: 'rgba(255,255,255,0.1)',
+        titleColor: theme.chartTooltipText,
+        bodyColor: theme.chartTooltipText,
+        borderColor: theme.borderSoft,
         borderWidth: 1,
       }
     },
     scales: {
       x: {
-        grid: { color: 'rgba(255,255,255,0.02)' },
-        ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 9 } }
+        grid: { color: theme.chartGrid },
+        ticks: { color: theme.chartTick, font: { size: 9 } }
       },
       'y-temp': {
         type: 'linear',
         position: 'left',
         min: 0,
         max: 100,
-        grid: { color: 'rgba(255,255,255,0.03)' },
+        grid: { color: theme.chartGrid },
         ticks: { 
           color: '#ff9f0a', 
           font: { size: 9 },
@@ -201,23 +203,81 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
 
   // 计算健康等级
   const getHealthStatus = () => {
-    if (!summary) return { label: '未连接', color: '#8e8e93', bg: 'rgba(142, 142, 147, 0.2)' };
+    if (!summary) return { label: '未连接', color: '#64748b', bg: 'rgba(100, 116, 139, 0.16)' };
     const errCount = (summary.error_count || 0) + (summary.actor_hung_count || 0) + (summary.vendor_failure_count || 0);
     const warnCount = (summary.warning_count || 0) + (summary.hardware_busy_count || 0);
 
     if (errCount > 0) {
-      return { label: '系统已降级', color: '#ff453a', bg: 'rgba(255, 69, 58, 0.2)' };
+      return { label: '系统已降级', color: '#dc2626', bg: 'rgba(220, 38, 38, 0.14)' };
     }
     if (warnCount > 3) {
-      return { label: '注意安全', color: '#ffd60a', bg: 'rgba(255, 214, 10, 0.2)' };
+      return { label: '注意安全', color: '#a16207', bg: 'rgba(161, 98, 7, 0.14)' };
     }
-    return { label: '运行极佳', color: '#30d158', bg: 'rgba(48, 209, 88, 0.2)' };
+    return { label: '运行极佳', color: '#047857', bg: 'rgba(4, 120, 87, 0.14)' };
   };
 
   const health = getHealthStatus();
+  const sentinelEventCount = Number((summary as any)?.sentinel_event_count ?? 0);
+  const watchdogEventCount = Number((summary as any)?.watchdog_event_count ?? 0);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'stretch' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+      <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div>
+            <h3 style={{ margin: '0 0 6px 0', fontSize: '17px', fontWeight: 900, color: 'var(--text-primary)' }}>
+              自愈哨兵模式
+            </h3>
+            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              后台持续检查风扇控制核心、WMI 心跳、前端心跳和采样新鲜度；发现确认故障后会尝试停止并重启风扇控制。
+            </p>
+          </div>
+          <button
+            onClick={runSentinelTest}
+            style={{
+              background: 'rgba(255, 69, 58, 0.12)',
+              border: '1.5px solid rgba(255, 69, 58, 0.42)',
+              color: 'var(--text-danger)',
+              borderRadius: '10px',
+              padding: '9px 16px',
+              fontSize: '12px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              minWidth: '160px',
+            }}
+          >
+            强制测试哨兵重启
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+          {[
+            { label: '当前状态', value: health.label, color: health.color },
+            { label: '哨兵事件', value: `${sentinelEventCount} 次`, color: 'var(--text-primary)' },
+            { label: '看门狗事件', value: `${watchdogEventCount} 次`, color: 'var(--text-primary)' },
+            { label: '自愈重启', value: `${summary?.watchdog_reload_count ?? 0} 次`, color: 'var(--text-primary)' },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                padding: '10px 12px',
+                borderRadius: '10px',
+                background: 'var(--surface-sunken)',
+                border: '1px solid var(--border-muted)',
+              }}
+            >
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 800, letterSpacing: '0.05em' }}>
+                {item.label}
+              </div>
+              <div style={{ marginTop: '5px', fontSize: '15px', fontWeight: 900, color: item.color }}>
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </GlassCard>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))', gap: '20px', alignItems: 'stretch' }}>
       
       {/* 左列：图表趋势与健康报告 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -262,21 +322,21 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '12px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--divider-color)', paddingBottom: '4px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>哨兵死锁自愈发生:</span>
                 <strong style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
                   {summary?.watchdog_reload_count ?? 0} 次
                 </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--divider-color)', paddingBottom: '4px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>ACPI 繁忙竞争阻塞:</span>
                 <strong style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
                   {summary?.hardware_busy_count ?? 0} 次
                 </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--divider-color)', paddingBottom: '4px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Uniwill 读写挂起:</span>
                 <strong style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
                   {summary?.vendor_failure_count ?? 0} 次
@@ -285,21 +345,21 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--divider-color)', paddingBottom: '4px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>日志记录总行数:</span>
                 <strong style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
                   {summary?.total_lines ?? 0} 行
                 </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--divider-color)', paddingBottom: '4px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>内核异常事件计:</span>
-                <strong style={{ fontFamily: 'var(--font-display)', color: (summary?.error_count ?? 0) > 0 ? '#ff453a' : 'var(--text-primary)' }}>
+                <strong style={{ fontFamily: 'var(--font-display)', color: (summary?.error_count ?? 0) > 0 ? 'var(--text-danger)' : 'var(--text-primary)' }}>
                   {summary?.error_count ?? 0} 条
                 </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--divider-color)', paddingBottom: '4px' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>内核告警事件计:</span>
-                <strong style={{ fontFamily: 'var(--font-display)', color: (summary?.warning_count ?? 0) > 0 ? '#ffd60a' : 'var(--text-primary)' }}>
+                <strong style={{ fontFamily: 'var(--font-display)', color: (summary?.warning_count ?? 0) > 0 ? '#a16207' : 'var(--text-primary)' }}>
                   {summary?.warning_count ?? 0} 条
                 </strong>
               </div>
@@ -315,7 +375,7 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
               style={{
                 background: 'rgba(255, 69, 58, 0.1)',
                 border: '1.5px dashed rgba(255, 69, 58, 0.4)',
-                color: '#ff453a',
+                color: 'var(--text-danger)',
                 borderRadius: '8px',
                 padding: '6px 14px',
                 fontSize: '11px',
@@ -410,6 +470,7 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
         </div>
       </GlassCard>
 
+      </div>
     </div>
   );
 };

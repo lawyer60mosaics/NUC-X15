@@ -15,4 +15,3 @@ pub mod vendor;
 
 #[cfg(windows)]
 pub mod wmi_client;
-

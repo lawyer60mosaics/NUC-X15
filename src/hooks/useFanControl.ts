@@ -173,14 +173,14 @@ export function useFanControl(showToast: (msg: string) => void) {
         cpuZeroStrikes.current += 1;
         if (cpuZeroStrikes.current >= FAN_ZERO_RECOVERY_STRIKES) {
           showToast('警告: 检测到 CPU 风扇零转速阻塞，启动自愈看门狗强制重启...');
-          await invokeBackend('force_fan_sentinel_restart');
+          await invokeBackend('force_fan_sentinel_restart', { fanData: buildPayload() });
           cpuZeroStrikes.current = 0;
         }
       } else {
         gpuZeroStrikes.current += 1;
         if (gpuZeroStrikes.current >= FAN_ZERO_RECOVERY_STRIKES) {
           showToast('警告: 检测到 GPU 风扇零转速阻塞，启动自愈看门狗强制重启...');
-          await invokeBackend('force_fan_sentinel_restart');
+          await invokeBackend('force_fan_sentinel_restart', { fanData: buildPayload() });
           gpuZeroStrikes.current = 0;
         }
       }
@@ -188,7 +188,7 @@ export function useFanControl(showToast: (msg: string) => void) {
       if (isCpu) cpuZeroStrikes.current = 0;
       else gpuZeroStrikes.current = 0;
     }
-  }, [running, showToast]);
+  }, [buildPayload, running, showToast]);
 
   // 热更新风扇策略逻辑
   const applyScenarioRuntime = useCallback(async () => {
@@ -371,6 +371,7 @@ export function useFanControl(showToast: (msg: string) => void) {
     applyScenarioRuntime,
     saveConfig,
     loadConfig,
+    buildPayload,
     resetCurveToScenario,
   };
 }

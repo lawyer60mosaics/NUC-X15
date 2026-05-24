@@ -15,6 +15,7 @@ const MOCK_STATE = {
   cpuTdp: { pl1: 45, pl2: 65 },
   gpuTdp: { pl1: 60, pl2: 80 },
   displayRefresh: 60,
+  displayScene: 'standard',
   vendorWhisper: 'Off',
   vendorBatteryMode: 'BestBattery',
   vendorBatteryLevel: 80,
@@ -106,7 +107,10 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
 
     case 'set_tdp':
     case 'lock_tdp':
-      if (args && args.payload) {
+      if (args?.t) {
+        MOCK_STATE.cpuTdp = { pl1: args.t.cpu1, pl2: args.t.cpu2 };
+        MOCK_STATE.gpuTdp = { pl1: args.t.gpu1, pl2: args.t.gpu2 };
+      } else if (args && args.payload) {
         const [pl1, pl2, gpl1, gpl2] = args.payload;
         MOCK_STATE.cpuTdp = { pl1, pl2 };
         MOCK_STATE.gpuTdp = { pl1: gpl1, pl2: gpl2 };
@@ -115,7 +119,9 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
 
     case 'set_cpu_tdp':
     case 'lock_cpu_tdp':
-      if (args && args.payload) {
+      if (args?.cpu1 !== undefined && args?.cpu2 !== undefined) {
+        MOCK_STATE.cpuTdp = { pl1: args.cpu1, pl2: args.cpu2 };
+      } else if (args && args.payload) {
         const [pl1, pl2] = args.payload;
         MOCK_STATE.cpuTdp = { pl1, pl2 };
       }
@@ -153,6 +159,34 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
         detail: 'EDID 修改成功',
         devices: [`内嵌显示器 2560x1440 ${MOCK_STATE.displayRefresh}Hz`],
       };
+
+    case 'apply_display_scene_profile': {
+      const mode = String(args?.mode || 'standard');
+      MOCK_STATE.displayScene = mode;
+      const sceneHz: Record<string, number> = {
+        reading: 60,
+        video: 60,
+        gaming: 165,
+        office: 90,
+        standard: 90,
+      };
+      MOCK_STATE.displayRefresh = sceneHz[mode] || 90;
+      const labels: Record<string, string> = {
+        reading: '阅读',
+        video: '视频',
+        gaming: '游戏',
+        office: '办公',
+        standard: '标准',
+      };
+      return {
+        mode,
+        label: labels[mode] || '标准',
+        current_hz: MOCK_STATE.displayRefresh,
+        supported_hz: [40, 60, 90, 120, 144, 165],
+        detail: `Mock display scene ${mode} -> ${MOCK_STATE.displayRefresh}Hz`,
+        notes: ['浏览器预览模式仅模拟刷新率切换。'],
+      };
+    }
 
     case 'get_vendor_service_status':
       return {
@@ -195,7 +229,9 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
         if (args.r !== undefined) MOCK_STATE.keyboardR = args.r;
         if (args.g !== undefined) MOCK_STATE.keyboardG = args.g;
         if (args.b !== undefined) MOCK_STATE.keyboardB = args.b;
+        if (args.keyboardBrightness !== undefined) MOCK_STATE.keyboardBrightness = args.keyboardBrightness;
         if (args.keyboard_brightness !== undefined) MOCK_STATE.keyboardBrightness = args.keyboard_brightness;
+        if (args.lightbarBrightness !== undefined) MOCK_STATE.lightbarBrightness = args.lightbarBrightness;
         if (args.lightbar_brightness !== undefined) MOCK_STATE.lightbarBrightness = args.lightbar_brightness;
         if (args.lightbar_breathing !== undefined) MOCK_STATE.lightbarBreathing = args.lightbar_breathing;
       }

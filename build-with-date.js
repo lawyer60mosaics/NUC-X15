@@ -1,72 +1,149 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-// 获取当前日期和时间
-// Semver 格式: MAJOR.MINOR.PATCH
-const now = new Date();
-const year = String(now.getFullYear()); // 2026
-const month = String(now.getMonth() + 1).padStart(2, '0'); // 04
-const day = String(now.getDate()).padStart(2, '0'); // 12
-const hour = String(now.getHours()).padStart(2, '0'); // 16
-const minute = String(now.getMinutes()).padStart(2, '0'); // 15
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// 使用年份后两位作为主版本号，格式: YY.MM.DD.HHMM
-// 但 semver 不支持 4 段式，所以我们使用: YY.MM.DD (例如: 26.4.12)
-// 构建信息可以放在文件名或元数据中
-const major = year.slice(-2); // 26
-const minor = parseInt(month, 10); // 4
-const patch = parseInt(day, 10); // 12
-const version = `${major}.${minor}.${patch}`;
+const ROOT = __dirname;
+const TAURI_CONFIG = path.join(ROOT, 'src-tauri', 'tauri.conf.json');
+const CARGO_TOML = path.join(ROOT, 'src-tauri', 'Cargo.toml');
+const PACKAGE_JSON = path.join(ROOT, 'package.json');
+const PACKAGE_LOCK = path.join(ROOT, 'package-lock.json');
 
-const buildInfo = `${year}${month}${day}${hour}${minute}`; // 202604121615
+const args = new Set(process.argv.slice(2));
+const shouldPrintOnly = args.has('--print');
+const shouldFrontendOnly = args.has('--frontend-only');
+const shouldKeepVersion = args.has('--keep-version');
+const granularity = process.env.BUILD_VERSION_GRANULARITY || 'minute';
 
-console.log(`构建版本: ${version}`);
-console.log(`构建信息: ${buildInfo}`);
+function pad(value, width = 2) {
+  return String(value).padStart(width, '0');
+}
 
-// 替换 tauri.conf.json 中的版本号
-const tauriConfigPath = path.join(__dirname, 'src-tauri', 'tauri.conf.json');
-let configContent = fs.readFileSync(tauriConfigPath, 'utf8');
-configContent = configContent.replace('__VERSION__', version);
-fs.writeFileSync(tauriConfigPath, configContent);
+function buildVersion(now = new Date(), mode = granularity) {
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
 
-console.log(`版本号已更新为: ${version}`);
+  const major = year % 100;
+  const minor = month * 100 + day;
+  const patch =
+    mode === 'day'
+      ? 0
+      : mode === 'hour'
+        ? hour
+        : hour * 100 + minute;
 
-let buildSuccess = false;
-try {
-  // 执行 Tauri 构建
-  execSync('npm run build', { stdio: 'inherit' });
-  buildSuccess = true;
-} catch (error) {
-  console.error('\n⚠️  构建过程中出现错误，但如果看到安装包已生成，可能是签名配置问题，不影响使用。');
-  console.error('错误信息:', error.message);
+  return {
+    version: `${major}.${minor}.${patch}`,
+    buildInfo: `${year}${pad(month)}${pad(day)}${pad(hour)}${pad(minute)}`,
+    humanTime: `${year}-${pad(month)}-${pad(day)} ${pad(hour)}:${pad(minute)}`,
+    mode,
+  };
+}
 
-  // 检查是否有安装包生成
-  const bundlePath = path.join(__dirname, 'src-tauri', 'target', 'release', 'bundle');
-  const nsisPath = path.join(bundlePath, 'nsis', `NUCtool_${version}_x64-setup.exe`);
-  const msiPath = path.join(bundlePath, 'msi', `NUCtool_${version}_x64_zh-CN.msi`);
+function readText(file) {
+  return fs.readFileSync(file, 'utf8');
+}
 
-  if (fs.existsSync(nsisPath) || fs.existsSync(msiPath)) {
-    console.log('\n✅ 检测到安装包已生成，构建成功！');
-    buildSuccess = true;
-  } else {
-    console.error('\n❌ 未检测到安装包，构建确实失败了。');
+function writeText(file, content) {
+  fs.writeFileSync(file, content);
+}
+
+function updateJsonVersion(file, version) {
+  const content = readText(file);
+  const json = JSON.parse(content);
+  json.version = version;
+  if (json.packages?.['']) {
+    json.packages[''].version = version;
+  }
+  writeText(file, `${JSON.stringify(json, null, 2)}\n`);
+  return content;
+}
+
+function updateCargoTomlVersion(file, version) {
+  const content = readText(file);
+  const updated = content.replace(
+    /^version\s*=\s*"[^"]+"/m,
+    `version = "${version}"`,
+  );
+  writeText(file, updated);
+  return content;
+}
+
+function updateTauriConfigVersion(file, version) {
+  return updateJsonVersion(file, version);
+}
+
+function restore(files) {
+  for (const [file, content] of files.reverse()) {
+    writeText(file, content);
   }
 }
 
-// 恢复原版本号
-configContent = fs.readFileSync(tauriConfigPath, 'utf8');
-configContent = configContent.replace(version, '__VERSION__');
-fs.writeFileSync(tauriConfigPath, configContent);
+function findBundleOutputs(version) {
+  const bundleRoot = path.join(ROOT, 'src-tauri', 'target', 'release', 'bundle');
+  const results = [];
+  for (const dir of ['nsis', 'msi']) {
+    const fullDir = path.join(bundleRoot, dir);
+    if (!fs.existsSync(fullDir)) continue;
+    for (const file of fs.readdirSync(fullDir)) {
+      if (file.includes(version)) {
+        results.push(path.join(fullDir, file));
+      }
+    }
+  }
+  return results;
+}
 
-if (buildSuccess) {
-  console.log(`\n✅ 构建完成！`);
-  console.log(`📦 版本: ${version}`);
-  console.log(`🕐 构建时间: ${buildInfo}`);
-  console.log(`\n📂 安装包位置:`);
-  console.log(`   MSI:  src-tauri\\target\\release\\bundle\\msi\\NUCtool_${version}_x64_zh-CN.msi`);
-  console.log(`   NSIS: src-tauri\\target\\release\\bundle\\nsis\\NUCtool_${version}_x64-setup.exe`);
-} else {
-  console.error('\n❌ 构建失败，请检查错误信息。');
-  process.exit(1);
+const build = buildVersion();
+
+console.log(`构建版本: ${build.version}`);
+console.log(`构建时间: ${build.humanTime}`);
+console.log(`版本粒度: ${build.mode}`);
+
+if (shouldPrintOnly) {
+  process.exit(0);
+}
+
+const originals = [];
+
+try {
+  originals.push([TAURI_CONFIG, updateTauriConfigVersion(TAURI_CONFIG, build.version)]);
+  originals.push([CARGO_TOML, updateCargoTomlVersion(CARGO_TOML, build.version)]);
+  originals.push([PACKAGE_JSON, updateJsonVersion(PACKAGE_JSON, build.version)]);
+  if (fs.existsSync(PACKAGE_LOCK)) {
+    originals.push([PACKAGE_LOCK, updateJsonVersion(PACKAGE_LOCK, build.version)]);
+  }
+
+  console.log(`版本号已临时更新为: ${build.version}`);
+  execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
+
+  if (!shouldFrontendOnly) {
+    execSync('npm run tauri:build', { cwd: ROOT, stdio: 'inherit' });
+  }
+
+  const outputs = findBundleOutputs(build.version);
+  console.log('\n✅ 构建完成');
+  console.log(`📦 版本: ${build.version}`);
+  console.log(`🕐 构建时间: ${build.buildInfo}`);
+  if (outputs.length > 0) {
+    console.log('\n📂 安装包位置:');
+    for (const output of outputs) {
+      console.log(`   ${path.relative(ROOT, output)}`);
+    }
+  } else if (!shouldFrontendOnly) {
+    console.log('\n⚠️ 未在 bundle 目录中找到带当前版本号的安装包，请检查 Tauri 输出日志。');
+  }
+} finally {
+  if (!shouldKeepVersion) {
+    restore(originals);
+    console.log('\n版本文件已恢复为打包前状态。');
+  } else {
+    console.log('\n已按 --keep-version 保留时间版本号。');
+  }
 }

@@ -200,7 +200,7 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
           <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: color, boxShadow: `0 0 12px ${color}` }}></span>
           外设 RGB 灯效星云舱
         </h3>
-        <div style={{ fontSize: '11px', opacity: 0.6, background: 'rgba(255,255,255,0.04)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
+        <div style={{ fontSize: '11px', opacity: 0.9, background: 'var(--surface-muted)', padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--border-muted)', fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
           {color.toUpperCase()}
         </div>
       </div>
@@ -252,8 +252,8 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
                     onClick={() => onChangeColor(preset.hex)}
                     title={preset.name}
                     style={{
-                      background: 'rgba(255, 255, 255, 0.03)',
-                      border: isSelected ? '1.5px solid rgba(255, 255, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.05)',
+                      background: 'var(--surface-muted)',
+                      border: isSelected ? '1.5px solid var(--border-strong)' : '1px solid var(--border-muted)',
                       borderRadius: '10px',
                       padding: '6px',
                       cursor: 'pointer',
@@ -287,7 +287,7 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
           {/* HTML 原生取色器微调 */}
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>调色盘微调:</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.12)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '10px', padding: '4px 10px', flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--surface-sunken)', border: '1px solid var(--border-muted)', borderRadius: '10px', padding: '4px 10px', flex: 1 }}>
               <input
                 type="color"
                 value={color}
@@ -310,10 +310,10 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
         </div>
       </div>
 
-      <hr style={{ border: 'none', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', margin: '4px 0' }} />
+      <hr style={{ border: 'none', borderBottom: '1px solid var(--divider-color)', margin: '4px 0' }} />
 
       {/* 滑块调节区域 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '20px' }}>
         <LiquidSlider
           label="键盘背光亮度"
           min={0}
@@ -341,8 +341,8 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
               width: '40px',
               height: '22px',
               borderRadius: '99px',
-              background: lightbarBreathing ? 'var(--accent-color)' : 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              background: lightbarBreathing ? 'var(--accent-color)' : 'var(--control-bg)',
+              border: '1px solid var(--control-border)',
               position: 'relative',
               transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
@@ -369,11 +369,11 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
           onClick={onApply}
           disabled={busy}
           style={{
-            background: busy ? 'rgba(255,255,255,0.04)' : 'var(--accent-color)',
+            background: busy ? 'var(--control-disabled-bg)' : 'var(--accent-color)',
             border: 'none',
             borderRadius: '12px',
             padding: '10px 20px',
-            color: busy ? 'var(--text-secondary)' : '#040812',
+            color: busy ? 'var(--text-secondary)' : 'var(--text-inverse)',
             fontWeight: 800,
             fontSize: '13px',
             cursor: busy ? 'not-allowed' : 'pointer',

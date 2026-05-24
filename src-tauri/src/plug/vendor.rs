@@ -620,8 +620,10 @@ fn apply_vendor_lighting_blocking(
         .unwrap_or(false);
     let status = VendorServiceStatus {
         ok: connected && sdk_found,
-        detail: if connected {
+        detail: if connected && sdk_found {
             "Vendor lighting settings applied".to_string()
+        } else if connected {
+            "Vendor service is reachable, but the lighting SDK was not found".to_string()
         } else {
             "Vendor lighting settings were not confirmed".to_string()
         },
