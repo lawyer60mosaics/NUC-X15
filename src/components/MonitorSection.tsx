@@ -221,14 +221,14 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
   const watchdogEventCount = Number((summary as any)?.watchdog_event_count ?? 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
-      <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+    <div className="dashboard-section">
+      <GlassCard className="module-card" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <h3 style={{ margin: '0 0 6px 0', fontSize: '17px', fontWeight: 900, color: 'var(--text-primary)' }}>
+            <h3 className="card-title" style={{ fontSize: '18px' }}>
               自愈哨兵模式
             </h3>
-            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            <p className="card-subtitle" style={{ fontSize: '12px' }}>
               后台持续检查风扇控制核心、WMI 心跳、前端心跳和采样新鲜度；发现确认故障后会尝试停止并重启风扇控制。
             </p>
           </div>
@@ -277,14 +277,14 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
         </div>
       </GlassCard>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 480px), 1fr))', gap: '20px', alignItems: 'stretch' }}>
+      <div className="dashboard-grid-wide">
       
       {/* 左列：图表趋势与健康报告 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div className="module-stack module-stack-equal module-card-lg">
         
         {/* 模块：实时平滑趋势监控图 */}
-        <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', height: '240px' }}>
-          <h3 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+        <GlassCard style={{ padding: '18px', display: 'flex', flexDirection: 'column' }}>
+          <h3 className="card-title" style={{ marginBottom: '12px' }}>
             实时状态平滑监控趋势 (Rolling Telemetry)
           </h3>
           <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -299,9 +299,9 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
         </GlassCard>
 
         {/* 模块：WMI 硬件与哨兵健康度汇总 */}
-        <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <GlassCard style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px', overflow: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+            <h3 className="card-title">
               底层驱动与 ACPI 监视诊断 (Kernel Diag)
             </h3>
             
@@ -393,23 +393,23 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
 
       {/* 右列：黑客帝国暗黑风格诊断终端 */}
       <GlassCard 
+        className="module-card-lg"
         style={{ 
           padding: '16px', 
           display: 'flex', 
           flexDirection: 'column', 
-          background: 'rgba(4, 8, 18, 0.72)', 
-          border: '1px solid rgba(255,255,255,0.08)',
-          boxShadow: '0 24px 60px rgba(0,0,0,0.5), inset 0 0 30px rgba(0, 198, 255, 0.05)',
-          height: '420px'
+          background: 'var(--surface-terminal)', 
+          border: 'var(--glass-border)',
+          boxShadow: 'var(--glass-shadow)',
         }}
       >
         {/* 终端顶栏 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '10px', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--divider-color)', paddingBottom: '10px', marginBottom: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ff5f56' }} />
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ffbd2e' }} />
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#27c93f' }} />
-            <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'rgba(255,255,255,0.5)', marginLeft: '10px' }}>
+            <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-secondary)', marginLeft: '10px' }}>
               nuctool_wmi_daemon.sh
             </span>
           </div>
@@ -431,7 +431,7 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
           }}
         >
           {logs.length === 0 ? (
-            <div style={{ color: 'rgba(48, 209, 88, 0.3)', fontStyle: 'italic' }}>
+            <div style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
               [SYSTEM] 终端就绪，正在监听驱动回调日志流...
             </div>
           ) : (
@@ -458,9 +458,9 @@ export const MonitorSection: React.FC<MonitorSectionProps> = ({
                     textShadow: log.level === 'error' ? '0 0 6px rgba(255, 69, 58, 0.2)' : 'none'
                   }}
                 >
-                  <span style={{ color: 'rgba(255,255,255,0.35)', userSelect: 'none' }}>{log.time}</span>
+                  <span style={{ color: 'var(--text-tertiary)', userSelect: 'none' }}>{log.time}</span>
                   <span style={{ fontWeight: 'bold', userSelect: 'none' }}>{prefix}</span>
-                  <span style={{ color: 'rgba(255,255,255,0.4)', userSelect: 'none' }}>[{log.tag.toUpperCase()}]</span>
+                  <span style={{ color: 'var(--text-secondary)', userSelect: 'none' }}>[{log.tag.toUpperCase()}]</span>
                   <span style={{ flex: 1 }}>{log.msg}</span>
                 </div>
               );

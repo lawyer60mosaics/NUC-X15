@@ -10,6 +10,7 @@ import { useFanControl, SCENARIOS } from './hooks/useFanControl';
 import { usePower } from './hooks/usePower';
 import { useVendorService } from './hooks/useVendorService';
 import { useDiagnostics } from './hooks/useDiagnostics';
+import { useAutostart } from './hooks/useAutostart';
 
 export const App: React.FC = () => {
   // 1. Toast 全局弹窗通知系统
@@ -27,6 +28,7 @@ export const App: React.FC = () => {
   const fanCtrl = useFanControl(showToast);
   const powerCtrl = usePower(showToast);
   const vendorCtrl = useVendorService(showToast);
+  const autostartCtrl = useAutostart(showToast);
   const getFanPayload = useCallback(() => fanCtrl.buildPayload(), [fanCtrl.buildPayload]);
   const getFanRunning = useCallback(() => fanCtrl.running, [fanCtrl.running]);
   const diagCtrl = useDiagnostics(showToast, getFanPayload, getFanRunning);
@@ -48,24 +50,26 @@ export const App: React.FC = () => {
   useEffect(() => {
     const syncTimeTheme = () => {
       const hour = new Date().getHours();
-      const theme = hour >= 7 && hour < 18 ? 'day' : 'night';
+      const theme = fanCtrl.timeThemeMode === 'auto'
+        ? (hour >= 7 && hour < 18 ? 'day' : 'night')
+        : fanCtrl.timeThemeMode;
       document.documentElement.setAttribute('data-time-theme', theme);
     };
 
     syncTimeTheme();
     const timer = window.setInterval(syncTimeTheme, 60_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [fanCtrl.timeThemeMode]);
 
   return (
     <div 
+      className="app-shell"
       style={{ 
         minHeight: '100dvh', 
         height: 'auto',
-        padding: '24px', 
         display: 'flex', 
         flexDirection: 'column', 
-        gap: '20px', 
+        gap: '12px', 
         position: 'relative',
         zIndex: 1,
         width: '100%',
@@ -131,13 +135,13 @@ export const App: React.FC = () => {
 
       {/* 顶级浮动玻璃顶栏 (Float Glass Topbar) */}
       <GlassCard 
+        className="featured-card"
         style={{ 
-          padding: '12px 24px', 
+          padding: '16px 18px', 
           display: 'flex', 
           justifyContent: 'space-between', 
           alignItems: 'center', 
-          borderRadius: '18px',
-          boxShadow: '0 10px 40px rgba(0,0,0,0.18)'
+          borderRadius: 'var(--radius-panel)',
         }}
       >
         {/* 左侧：Logo 与状态呼吸灯 */}
@@ -146,7 +150,7 @@ export const App: React.FC = () => {
             <h1 
               style={{ 
                 margin: 0, 
-                fontSize: '18px', 
+                fontSize: '28px', 
                 fontWeight: 900, 
                 fontFamily: 'var(--font-display)', 
                 letterSpacing: '-0.02em',
@@ -157,8 +161,8 @@ export const App: React.FC = () => {
             >
               NUCtool
             </h1>
-            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', letterSpacing: '0.05em', fontWeight: 600 }}>
-              LIQUID GLASS CONSOLE
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', letterSpacing: 0, fontWeight: 700 }}>
+              FAN CONTROL GRID
             </span>
           </div>
 
@@ -172,7 +176,7 @@ export const App: React.FC = () => {
               gap: '6px', 
               background: 'var(--surface-sunken)', 
               padding: '4px 10px', 
-              borderRadius: '99px',
+              borderRadius: 'var(--radius-capsule)',
               border: '1px solid var(--border-muted)',
             }}
           >
@@ -204,7 +208,7 @@ export const App: React.FC = () => {
               background: fanCtrl.running ? 'rgba(255, 69, 58, 0.15)' : 'var(--accent-color)',
               border: fanCtrl.running ? '1px solid rgba(255, 69, 58, 0.3)' : 'none',
               color: fanCtrl.running ? 'var(--text-danger)' : 'var(--text-inverse)',
-              borderRadius: '10px',
+              borderRadius: 'var(--radius-control)',
               padding: '6px 14px',
               fontSize: '11px',
               fontWeight: 800,
@@ -238,16 +242,15 @@ export const App: React.FC = () => {
       <GlassCard 
         style={{ 
           padding: '8px', 
-          borderRadius: '16px', 
+          borderRadius: 'var(--radius-panel)', 
           display: 'flex', 
           justifyContent: 'space-between', 
           alignItems: 'center',
           gap: '8px',
-          boxShadow: '0 6px 20px rgba(0,0,0,0.12)'
         }}
       >
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '12px', fontWeight: 700, letterSpacing: '0.05em' }}>
-          ENVIRONMENT SCENARIO SELECTOR
+        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '12px', fontWeight: 800, letterSpacing: 0 }}>
+          场景模式
         </span>
         <div style={{ display: 'flex', gap: '6px', flex: 1, justifySelf: 'end', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           {Object.keys(SCENARIOS).map((key) => {
@@ -271,7 +274,7 @@ export const App: React.FC = () => {
                   background: isSelected ? 'var(--accent-color)' : 'var(--surface-muted)',
                   border: isSelected ? '1px solid var(--border-soft)' : '1px solid var(--border-muted)',
                   color: isSelected ? 'var(--text-inverse)' : 'var(--text-secondary)',
-                  borderRadius: '10px',
+                  borderRadius: 'var(--radius-control)',
                   padding: '6px 14px',
                   fontSize: '11px',
                   fontWeight: 800,
@@ -311,6 +314,11 @@ export const App: React.FC = () => {
             setConstantSpeed={fanCtrl.setConstantSpeed}
             startupTakeoverEnabled={fanCtrl.startupTakeoverEnabled}
             setStartupTakeoverEnabled={fanCtrl.setStartupTakeoverEnabled}
+            autostartEnabled={autostartCtrl.autostartEnabled}
+            autostartBusy={autostartCtrl.autostartBusy}
+            setAutostartEnabled={autostartCtrl.setAutostartEnabled}
+            timeThemeMode={fanCtrl.timeThemeMode}
+            setTimeThemeMode={fanCtrl.setTimeThemeMode}
             running={fanCtrl.running}
             toggleControl={fanCtrl.toggleControl}
             saveConfig={fanCtrl.saveConfig}

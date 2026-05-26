@@ -15,7 +15,7 @@ use std::{
 use tauri::{Emitter, Manager, Window};
 
 use crate::plug::{
-    config::{default_fan_data, get_monitor_log_file_path},
+    config::{default_fan_data, get_monitor_log_file_path, load_saved_fan_data},
     constants::{
         FAN_RAMP_STEP, FAN_RAMP_STEP_DOWN, FAST_RAMP_UP, MAX_FAN_SPEED_PERCENT,
         MAX_MONITOR_SAMPLE_INTERVAL_MS, MAX_SENSOR_RPM, MAX_TEMP_LIMIT,
@@ -255,6 +255,41 @@ fn remember_runtime(fan_data: &FanData, window: &Window) {
     if let Ok(mut runtime) = LAST_RUNTIME.write() {
         *runtime = Some((fan_data.clone(), window.clone()));
     }
+}
+
+pub fn start_saved_startup_takeover(window: Window) -> Result<(), String> {
+    let fan_data = load_saved_fan_data()?;
+    if !fan_data.control.startup_takeover_enabled {
+        app_log(
+            "startup",
+            "info",
+            "takeover.disabled",
+            "saved startup takeover is disabled",
+        );
+        return Ok(());
+    }
+
+    SENSOR_PUSH_INTERVAL_MS.store(
+        fan_data.monitor.sample_interval_ms.clamp(
+            MIN_MONITOR_SAMPLE_INTERVAL_MS,
+            MAX_MONITOR_SAMPLE_INTERVAL_MS.min(1000),
+        ),
+        Ordering::Relaxed,
+    );
+    let mode = fan_data.control.mode.as_str().to_string();
+    let constant = is_constant_mode(&fan_data.control);
+    let speed = fan_data.control.constant_speed;
+    remember_runtime(&fan_data, &window);
+    fan_actor_sender()
+        .try_send(FanActorMessage::Start { fan_data, window })
+        .map_err(|error| format!("启动后自动接管排队失败: {}", error))?;
+    app_log(
+        "startup",
+        "info",
+        "takeover.queued",
+        format!("mode={} constant={} speed={}", mode, constant, speed),
+    );
+    Ok(())
 }
 
 fn forget_runtime() {

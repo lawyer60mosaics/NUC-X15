@@ -30,7 +30,7 @@ export const CapsuleTabs: React.FC<CapsuleTabsProps> = ({
           gap: '8px',
           background: 'var(--surface-sunken)',
           border: '1px solid var(--border-muted)',
-          borderRadius: '16px',
+          borderRadius: 'var(--radius-panel)',
           padding: '6px',
           position: 'relative',
         }}
@@ -45,8 +45,8 @@ export const CapsuleTabs: React.FC<CapsuleTabsProps> = ({
                 background: isActive ? 'var(--glass-gradient-hover)' : 'transparent',
                 border: isActive ? '1px solid var(--border-soft)' : '1px solid transparent',
                 boxShadow: isActive ? '0 6px 20px rgba(0, 0, 0, 0.16), var(--glass-border-inner)' : 'none',
-                borderRadius: '12px',
-                padding: '10px 14px',
+                borderRadius: 'var(--radius-control)',
+                padding: '12px 14px',
                 color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                 cursor: 'pointer',
                 textAlign: 'left',
@@ -62,9 +62,9 @@ export const CapsuleTabs: React.FC<CapsuleTabsProps> = ({
               {/* iOS 风格的数字圆圈微标 */}
               <div 
                 style={{
-                  width: '26px',
-                  height: '26px',
-                  borderRadius: '50%',
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: 'var(--radius-control)',
                   background: isActive ? 'var(--accent-color)' : 'var(--control-bg)',
                   color: isActive ? 'var(--text-inverse)' : 'var(--text-secondary)',
                   display: 'grid',

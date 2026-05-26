@@ -16,9 +16,9 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   style,
   ...props
 }) => {
-  const blurVal = intensity === 'low' ? '12px' : intensity === 'high' ? '42px' : '28px';
-  const saturation = intensity === 'low' ? '140%' : intensity === 'high' ? '200%' : '180%';
-  const brightness = intensity === 'low' ? '1.02' : intensity === 'high' ? '1.08' : '1.05';
+  const blurVal = intensity === 'low' ? '0px' : intensity === 'high' ? '0px' : '0px';
+  const saturation = intensity === 'low' ? '100%' : intensity === 'high' ? '100%' : '100%';
+  const brightness = intensity === 'low' ? '1' : intensity === 'high' ? '1' : '1';
 
   const cardStyle: React.CSSProperties = {
     backdropFilter: `blur(${blurVal}) saturate(${saturation}) brightness(${brightness})`,
@@ -27,7 +27,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({
     border: 'var(--glass-border)',
     borderRadius: 'var(--radius-panel)',
     boxShadow: 'var(--glass-shadow), var(--glass-border-inner)',
-    padding: '20px',
+    padding: '18px',
     position: 'relative',
     overflow: 'hidden',
     ...style,
@@ -42,20 +42,6 @@ export const GlassCard: React.FC<GlassCardProps> = ({
       style={cardStyle}
       {...props}
     >
-      {/* 隐藏的折射炫光微反光线（Glint） */}
-      <div 
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: '-150%',
-          width: '60%',
-          height: '100%',
-          background: 'linear-gradient(90deg, transparent, var(--glass-glint), transparent)',
-          transform: 'skewX(-28deg)',
-          pointerEvents: 'none',
-          animation: 'shimmerGlint 12s ease-in-out infinite',
-        }}
-      />
       {children}
     </div>
   );

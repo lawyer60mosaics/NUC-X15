@@ -1,7 +1,7 @@
 import React from 'react';
 import GlassCard from './GlassCard';
 import LiquidSlider from './LiquidSlider';
-import { CurvePoint } from '../hooks/useFanControl';
+import { CurvePoint, TimeThemeMode } from '../hooks/useFanControl';
 import { useThemeTokens } from '../hooks/useThemeTokens';
 
 // Chart.js 核心注册
@@ -46,6 +46,11 @@ interface OverviewSectionProps {
   setConstantSpeed: (val: number) => void;
   startupTakeoverEnabled: boolean;
   setStartupTakeoverEnabled: (val: boolean) => void;
+  autostartEnabled: boolean;
+  autostartBusy: boolean;
+  setAutostartEnabled: (val: boolean) => void;
+  timeThemeMode: TimeThemeMode;
+  setTimeThemeMode: (mode: TimeThemeMode) => void;
   running: boolean;
   toggleControl: () => void;
   saveConfig: () => void;
@@ -69,6 +74,11 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
   setConstantSpeed,
   startupTakeoverEnabled,
   setStartupTakeoverEnabled,
+  autostartEnabled,
+  autostartBusy,
+  setAutostartEnabled,
+  timeThemeMode,
+  setTimeThemeMode,
   running,
   toggleControl,
   saveConfig,
@@ -200,17 +210,56 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
     }
   };
 
+  const renderSwitch = (enabled: boolean, onClick: () => void, disabled = false) => (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      aria-pressed={enabled}
+      disabled={disabled}
+      style={{
+        width: '38px',
+        height: '22px',
+        borderRadius: '999px',
+        background: enabled ? 'var(--accent-color)' : 'var(--control-bg)',
+        border: '1px solid var(--control-border)',
+        position: 'relative',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
+        padding: 0,
+      }}
+    >
+      <span
+        style={{
+          width: '16px',
+          height: '16px',
+          borderRadius: '50%',
+          background: '#ffffff',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.26)',
+          position: 'absolute',
+          top: '2px',
+          left: enabled ? '18px' : '2px',
+        }}
+      />
+    </button>
+  );
+
+  const themeOptions: Array<{ value: TimeThemeMode; label: string }> = [
+    { value: 'auto', label: '自动' },
+    { value: 'day', label: '白天' },
+    { value: 'night', label: '夜晚' },
+  ];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="dashboard-section">
       
       {/* 顶部三维数字仪表盘卡片组 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '16px' }}>
+      <div className="dashboard-grid">
         
         {/* CPU 温度卡 */}
-        <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        <GlassCard className="module-card-sm" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.08em' }}>CPU TEMPERATURE</div>
           <div style={{ display: 'flex', alignItems: 'baseline', marginTop: '6px' }}>
-            <span style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'var(--font-display)', color: cpuTemp !== '--' && cpuTemp > 80 ? 'var(--text-danger)' : 'var(--text-primary)' }}>
+            <span className="metric-value" style={{ color: cpuTemp !== '--' && cpuTemp > 80 ? 'var(--text-danger)' : 'var(--text-primary)' }}>
               {cpuTemp}
             </span>
             <span style={{ fontSize: '14px', marginLeft: '2px', color: 'var(--text-secondary)', fontWeight: 700 }}>°C</span>
@@ -230,10 +279,10 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
         </GlassCard>
 
         {/* GPU 温度卡 */}
-        <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        <GlassCard className="module-card-sm" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.08em' }}>GPU TEMPERATURE</div>
           <div style={{ display: 'flex', alignItems: 'baseline', marginTop: '6px' }}>
-            <span style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'var(--font-display)', color: gpuTemp !== '--' && gpuTemp > 80 ? 'var(--text-danger)' : 'var(--text-primary)' }}>
+            <span className="metric-value" style={{ color: gpuTemp !== '--' && gpuTemp > 80 ? 'var(--text-danger)' : 'var(--text-primary)' }}>
               {gpuTemp}
             </span>
             <span style={{ fontSize: '14px', marginLeft: '2px', color: 'var(--text-secondary)', fontWeight: 700 }}>°C</span>
@@ -252,10 +301,10 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
         </GlassCard>
 
         {/* CPU 风扇转速卡 */}
-        <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        <GlassCard className="module-card-sm" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.08em' }}>CPU FAN SPEED</div>
           <div style={{ display: 'flex', alignItems: 'baseline', marginTop: '6px' }}>
-            <span style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+            <span className="metric-value" style={{ color: 'var(--text-primary)' }}>
               {cpuFanRpm}
             </span>
             <span style={{ fontSize: '12px', marginLeft: '3px', color: 'var(--text-secondary)', fontWeight: 700 }}>RPM</span>
@@ -274,10 +323,10 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
         </GlassCard>
 
         {/* GPU 风扇转速卡 */}
-        <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        <GlassCard className="module-card-sm" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.08em' }}>GPU FAN SPEED</div>
           <div style={{ display: 'flex', alignItems: 'baseline', marginTop: '6px' }}>
-            <span style={{ fontSize: '32px', fontWeight: 900, fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
+            <span className="metric-value" style={{ color: 'var(--text-primary)' }}>
               {gpuFanRpm}
             </span>
             <span style={{ fontSize: '12px', marginLeft: '3px', color: 'var(--text-secondary)', fontWeight: 700 }}>RPM</span>
@@ -298,15 +347,15 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
       </div>
 
       {/* 主面板：曲线拖拽编辑器 + 恒速设置 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: '20px', alignItems: 'start' }}>
+      <div className="dashboard-grid-wide">
         
         {/* 左侧：可拖动温控曲线 */}
-        <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', height: '360px' }}>
+        <GlassCard className="module-card-lg" style={{ padding: '18px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+            <h3 className="card-title">
               双向液态温控矩阵 {constantSpeedEnabled && <span style={{ fontSize: '12px', color: '#ff9f0a', marginLeft: '6px' }}>(恒速已接管)</span>}
             </h3>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', opacity: 0.8 }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
               {constantSpeedEnabled ? '温控曲线锁定中，禁用拖拽' : '鼠标随意拖拽曲线节点调整目标转速'}
             </span>
           </div>
@@ -317,7 +366,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
         </GlassCard>
 
         {/* 右侧：恒速接管及哨兵控制面板 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="module-stack module-stack-equal module-card-lg">
           
           <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -369,41 +418,61 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
             />
           </GlassCard>
 
-          <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>开机自动接管</span>
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
-                <div 
-                  onClick={() => setStartupTakeoverEnabled(!startupTakeoverEnabled)}
-                  style={{
-                    width: '36px',
-                    height: '20px',
-                    borderRadius: '99px',
-                    background: startupTakeoverEnabled ? 'var(--accent-color)' : 'var(--control-bg)',
-                    border: '1px solid var(--control-border)',
-                    position: 'relative',
-                    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                  }}
-                >
-                  <div 
-                    style={{
-                      width: '14px',
-                      height: '14px',
-                      borderRadius: '50%',
-                      background: '#ffffff',
-                      boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-                      position: 'absolute',
-                      top: '2px',
-                      left: startupTakeoverEnabled ? '18px' : '2px',
-                      transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                    }}
-                  />
+          <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>启动与日夜策略</div>
+
+            <div style={{ display: 'grid', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>程序开机自启动</div>
+                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '2px 0 0', lineHeight: 1.35 }}>
+                    Windows 登录后自动启动 NUCtool 主程序。
+                  </p>
                 </div>
-              </label>
+                {renderSwitch(autostartEnabled, () => setAutostartEnabled(!autostartEnabled), autostartBusy)}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>启动后接管风扇</div>
+                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '2px 0 0', lineHeight: 1.35 }}>
+                    程序启动后加载保存策略并接管 EC 温控。
+                  </p>
+                </div>
+                {renderSwitch(startupTakeoverEnabled, () => setStartupTakeoverEnabled(!startupTakeoverEnabled))}
+              </div>
             </div>
-            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
-              系统开机启动或唤醒后，自动让本程序接管 EC 温控，无需手动开启。
-            </p>
+
+            <div style={{ borderTop: '1px solid var(--divider-color)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>日夜场景</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                {themeOptions.map((option) => {
+                  const selected = timeThemeMode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setTimeThemeMode(option.value)}
+                      style={{
+                        background: selected ? 'var(--accent-color)' : 'var(--surface-muted)',
+                        border: selected ? '1px solid var(--border-soft)' : '1px solid var(--border-muted)',
+                        color: selected ? 'var(--text-inverse)' : 'var(--text-primary)',
+                        borderRadius: 'var(--radius-control)',
+                        padding: '7px 6px',
+                        fontSize: '11px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.35 }}>
+                选择后立即保存；自动模式按 07:00-18:00 使用白天，其余时间使用夜晚。
+              </p>
+            </div>
           </GlassCard>
 
           {/* 策略快速应用按钮区 */}

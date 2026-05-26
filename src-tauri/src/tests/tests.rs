@@ -319,6 +319,7 @@ fn test_normalize_fan_data_clamps_values() {
             sample_interval_ms: 10,
             log_enabled: true,
         },
+        appearance: Default::default(),
     };
 
     let n = normalize_fan_data(bad);

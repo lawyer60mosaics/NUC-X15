@@ -36,7 +36,7 @@ export function useVendorService(showToast: (msg: string) => void) {
 
   // 电池养护设置
   const [batteryMode, setBatteryMode] = useState<string>('BestBattery');
-  const [batteryLevel, setBatteryLevel] = useState<number>(80);
+  const [batteryLevel, setBatteryLevel] = useState<number>(60);
 
   // RGB 灯效与亮度
   const [lightingColor, setLightingColor] = useState<string>('#ffffff');

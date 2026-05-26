@@ -6,6 +6,8 @@ export interface CurvePoint {
   speed: number;
 }
 
+export type TimeThemeMode = 'auto' | 'day' | 'night';
+
 export const CURVE_TEMPS = [35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85];
 
 export const SCENARIOS: Record<string, {
@@ -91,6 +93,7 @@ export function useFanControl(showToast: (msg: string) => void) {
   const [constantSpeedEnabled, setConstantSpeedEnabled] = useState(false);
   const [constantSpeed, setConstantSpeed] = useState(50);
   const [startupTakeoverEnabled, setStartupTakeoverEnabled] = useState(false);
+  const [timeThemeMode, setTimeThemeMode] = useState<TimeThemeMode>('auto');
 
   // 实时传感器数值
   const [cpuTemp, setCpuTemp] = useState<number | '--'>('--');
@@ -122,8 +125,10 @@ export function useFanControl(showToast: (msg: string) => void) {
   }, [selectedScenario, resetCurveToScenario]);
 
   // 生成传递给底层的 Payload
-  const buildPayload = useCallback(() => {
+  const buildPayload = useCallback((overrides?: { timeThemeMode?: TimeThemeMode; startupTakeoverEnabled?: boolean }) => {
     const sc = SCENARIOS[selectedScenario] || SCENARIOS.office;
+    const resolvedThemeMode = overrides?.timeThemeMode ?? timeThemeMode;
+    const resolvedStartupTakeover = overrides?.startupTakeoverEnabled ?? startupTakeoverEnabled;
     return {
       left_fan: cpuCurve,
       right_fan: gpuCurve,
@@ -139,7 +144,7 @@ export function useFanControl(showToast: (msg: string) => void) {
         zero_rpm_threshold: 45,
         constant_speed_enabled: constantSpeedEnabled,
         constant_speed: constantSpeed,
-        startup_takeover_enabled: startupTakeoverEnabled,
+        startup_takeover_enabled: resolvedStartupTakeover,
         cpu_hysteresis_bandwidth: sc.hysteresis,
         gpu_hysteresis_bandwidth: sc.hysteresis,
         cpu_fan_max_percent: sc.cpuCap,
@@ -157,8 +162,11 @@ export function useFanControl(showToast: (msg: string) => void) {
         sample_interval_ms: 1000,
         log_enabled: true,
       },
+      appearance: {
+        time_theme_mode: resolvedThemeMode,
+      },
     };
-  }, [selectedScenario, cpuCurve, gpuCurve, constantSpeedEnabled, constantSpeed, startupTakeoverEnabled]);
+  }, [selectedScenario, cpuCurve, gpuCurve, constantSpeedEnabled, constantSpeed, startupTakeoverEnabled, timeThemeMode]);
 
   // 风扇卡转保护看门狗逻辑
   const assessFanSafety = useCallback(async (tempC: number, fanRpm: number, isCpu: boolean) => {
@@ -305,6 +313,37 @@ export function useFanControl(showToast: (msg: string) => void) {
     }
   }, [buildPayload, running, showToast]);
 
+  const setTimeThemeModeAndSave = useCallback(async (mode: TimeThemeMode) => {
+    setTimeThemeMode(mode);
+    try {
+      const payload = buildPayload({ timeThemeMode: mode });
+      await invokeBackend('save_fan_config', { fanData: payload });
+      showToast(
+        mode === 'auto'
+          ? '日夜场景已保存为自动切换。'
+          : mode === 'day'
+            ? '日夜场景已保存为白天模式。'
+            : '日夜场景已保存为夜晚模式。'
+      );
+    } catch (e: any) {
+      showToast(`保存日夜场景失败: ${e.message || e}`);
+    }
+  }, [buildPayload, showToast]);
+
+  const setStartupTakeoverEnabledAndSave = useCallback(async (enabled: boolean) => {
+    setStartupTakeoverEnabled(enabled);
+    try {
+      const payload = buildPayload({ startupTakeoverEnabled: enabled });
+      await invokeBackend('save_fan_config', { fanData: payload });
+      if (running) {
+        await invokeBackend('update_fan_policy', { fanData: payload });
+      }
+      showToast(enabled ? '启动后接管风扇已保存。' : '启动后接管风扇已关闭并保存。');
+    } catch (e: any) {
+      showToast(`保存启动接管策略失败: ${e.message || e}`);
+    }
+  }, [buildPayload, running, showToast]);
+
   const loadConfig = useCallback(async () => {
     try {
       const fanData = await invokeBackend('load_fan_config');
@@ -316,6 +355,8 @@ export function useFanControl(showToast: (msg: string) => void) {
         setConstantSpeedEnabled(!!fanData.control.constant_speed_enabled);
         setConstantSpeed(Number(fanData.control.constant_speed ?? 50));
         setStartupTakeoverEnabled(!!fanData.control.startup_takeover_enabled);
+        const loadedTheme = String(fanData.appearance?.time_theme_mode || 'auto').toLowerCase();
+        setTimeThemeMode(loadedTheme === 'day' || loadedTheme === 'night' ? loadedTheme : 'auto');
         showToast('已成功加载上次保存的配置。');
       }
     } catch (e: any) {
@@ -358,7 +399,9 @@ export function useFanControl(showToast: (msg: string) => void) {
     constantSpeed,
     setConstantSpeed,
     startupTakeoverEnabled,
-    setStartupTakeoverEnabled,
+    setStartupTakeoverEnabled: setStartupTakeoverEnabledAndSave,
+    timeThemeMode,
+    setTimeThemeMode: setTimeThemeModeAndSave,
     cpuTemp,
     gpuTemp,
     cpuFanRpm,

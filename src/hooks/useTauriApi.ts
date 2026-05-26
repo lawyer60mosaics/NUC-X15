@@ -18,7 +18,7 @@ const MOCK_STATE = {
   displayScene: 'standard',
   vendorWhisper: 'Off',
   vendorBatteryMode: 'BestBattery',
-  vendorBatteryLevel: 80,
+  vendorBatteryLevel: 60,
   keyboardR: 255,
   keyboardG: 255,
   keyboardB: 255,
@@ -28,6 +28,7 @@ const MOCK_STATE = {
   lightbarB: 120,
   lightbarBrightness: 0,
   lightbarBreathing: false,
+  fanConfig: null as any,
   diagnostics: {
     totalLines: 12,
     warningCount: 0,
@@ -88,7 +89,9 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
       return MOCK_STATE.autostart;
 
     case 'autostart_set':
-      if (args && typeof args.active === 'boolean') {
+      if (args && typeof args.enable === 'boolean') {
+        MOCK_STATE.autostart = args.enable;
+      } else if (args && typeof args.active === 'boolean') {
         MOCK_STATE.autostart = args.active;
       }
       return MOCK_STATE.autostart;
@@ -205,17 +208,17 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
 
     case 'apply_vendor_whisper':
       if (args && args.mode) {
-        MOCK_STATE.vendorWhisper = args.mode;
+        MOCK_STATE.vendorWhisper = args.mode === 'On' ? 'Quiet' : args.mode;
       }
       return {
         mode: MOCK_STATE.vendorWhisper,
-        fps: MOCK_STATE.vendorWhisper === 'Off' ? 0 : 60,
+        fps: MOCK_STATE.vendorWhisper === 'Off' ? 0 : Number(args?.fps ?? 60),
         status: { ok: true, detail: 'Whisper 模式应用成功', data: {} }
       };
 
     case 'apply_vendor_battery':
       if (args && args.mode) {
-        MOCK_STATE.vendorBatteryMode = args.mode;
+        MOCK_STATE.vendorBatteryMode = args.mode === 'Standard' ? 'Custom' : args.mode === 'FullCharge' ? 'AcMode' : args.mode;
         MOCK_STATE.vendorBatteryLevel = args.level || 80;
       }
       return {
@@ -275,8 +278,12 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
       MOCK_STATE.diagnostics.totalLines += 2;
       return '自愈哨兵重启成功（本地仿真验证）';
 
+    case 'save_fan_config':
+      MOCK_STATE.fanConfig = args?.fanData ?? null;
+      return true;
+
     case 'load_fan_config':
-      return null;
+      return MOCK_STATE.fanConfig;
 
     default:
       return null;

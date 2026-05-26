@@ -318,6 +318,20 @@ impl Default for MonitoringConfig {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AppearanceConfig {
+    #[serde(default = "default_time_theme_mode")]
+    pub time_theme_mode: String,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            time_theme_mode: default_time_theme_mode(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct FanData {
     #[serde(default)]
@@ -330,6 +344,8 @@ pub struct FanData {
     pub alerts: AlertConfig,
     #[serde(default)]
     pub monitor: MonitoringConfig,
+    #[serde(default)]
+    pub appearance: AppearanceConfig,
 }
 
 fn default_strategy() -> String {
@@ -423,6 +439,10 @@ fn default_monitor_sample_interval_ms() -> u64 {
         MIN_MONITOR_SAMPLE_INTERVAL_MS,
         MAX_MONITOR_SAMPLE_INTERVAL_MS,
     )
+}
+
+fn default_time_theme_mode() -> String {
+    "auto".to_string()
 }
 
 fn default_true() -> bool {

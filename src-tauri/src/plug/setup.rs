@@ -8,7 +8,11 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-use crate::plug::{config::get_config_dir, diagnostics::app_log, fan::fan_reset};
+use crate::plug::{
+    config::get_config_dir,
+    diagnostics::app_log,
+    fan::{fan_reset, start_saved_startup_takeover},
+};
 
 async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
     let up: Update;
@@ -105,6 +109,14 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let _ = window.set_min_size(Some(tauri::LogicalSize::new(680.0, 480.0)));
     if window.maximize().is_err() {
         let _ = window.center();
+    }
+    if let Err(e) = start_saved_startup_takeover(window.clone().into()) {
+        app_log(
+            "startup",
+            "warn",
+            "takeover.failed",
+            format!("error={}", e),
+        );
     }
     let h = MenuItemBuilder::with_id("h", "显示界面").build(app)?;
     let q = MenuItemBuilder::with_id("q", "退出程序").build(app)?;

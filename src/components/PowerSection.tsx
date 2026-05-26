@@ -132,17 +132,24 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
 
   const batteryModes = [
     { id: 'BestBattery', label: '养护 (60%)', level: 60 },
-    { id: 'Standard', label: '平衡 (80%)', level: 80 },
-    { id: 'FullCharge', label: '满电 (100%)', level: 100 },
+    { id: 'Custom', label: '自定义 (80%)', level: 80 },
+    { id: 'AcMode', label: '满电 (100%)', level: 100 },
+  ];
+
+  const whisperModes = [
+    { id: 'Off', label: '关闭' },
+    { id: 'Quiet', label: '安静' },
+    { id: 'Quieter', label: '更安静' },
+    { id: 'Balanced', label: '平衡' },
   ];
 
   const displaySceneCard = (
-    <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+    <GlassCard className="module-card" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
       <div>
-        <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+        <h3 className="card-title">
           屏幕场景调校 (Display Scenes)
         </h3>
-        <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
+        <p className="card-subtitle">
           检测到的活动显卡设备: <strong style={{ color: 'var(--text-primary)' }}>{displayDetail}</strong>
         </p>
       </div>
@@ -196,20 +203,20 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+    <div className="dashboard-section">
       {displaySceneCard}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))', gap: '20px', alignItems: 'start', width: '100%' }}>
+      <div className="dashboard-grid-wide">
       
       {/* 左列：系统功耗与显卡 PL 配置 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div className="module-stack">
         
         {/* 模块：系统功耗预设 */}
-        <GlassCard style={{ padding: '20px' }}>
-          <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+        <GlassCard className="module-card-md" style={{ padding: '18px' }}>
+          <h3 className="card-title">
             系统性能能效模型 (TDP Profiles)
           </h3>
-          <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '0 0 16px 0', lineHeight: 1.4 }}>
+          <p className="card-subtitle" style={{ marginBottom: '16px' }}>
             选择符合你当前用机习惯的功耗限制，切换将在线修改 ACPI 寄存器组。
           </p>
 
@@ -249,12 +256,12 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
         </GlassCard>
 
         {/* 模块：手动 TDP 滑条配置 */}
-        <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <GlassCard className="module-card-md" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+            <h3 className="card-title">
               PL 限额自定义调节 (TDP Limits)
             </h3>
-            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+            <p className="card-subtitle">
               防 ACPI 竞争保护队列已启动，滑块拖拽松手后执行自适应排队锁定。
             </p>
           </div>
@@ -326,7 +333,7 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
       </div>
 
       {/* 右列：外设 RGB 灯效与厂商专享养护 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div className="module-stack">
         
         {/* RGB 灯效星云舱 (Embedded Picker) */}
         <ColorCirclePicker
@@ -343,12 +350,12 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
         />
 
         {/* 模块：Whisper 游戏静音与电池养护 */}
-        <GlassCard style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <GlassCard className="module-card-md" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)' }}>
+            <h3 className="card-title">
               Uniwill 增值管理 (Whisper & Battery)
             </h3>
-            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
+            <p className="card-subtitle">
               对主板 EC 的 Whisper 静音算法和锂电池寿命养护阈值提供直读写入。
             </p>
           </div>
@@ -363,8 +370,11 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
                 onChange={(event) => handleApplyWhisper(event.target.value)}
                 style={selectStyle}
               >
-                <option value="Off">关闭</option>
-                <option value="On">开启</option>
+                {whisperModes.map((mode) => (
+                  <option key={mode.id} value={mode.id}>
+                    {mode.label}
+                  </option>
+                ))}
               </select>
             </div>
             
@@ -379,8 +389,8 @@ export const PowerSection: React.FC<PowerSectionProps> = ({
                 disabled={whisperMode === 'Off'}
                 onChange={(e) => {
                   setWhisperFps(Number(e.target.value));
-                  if (whisperMode === 'On') {
-                    applyWhisper('On', Number(e.target.value));
+                  if (whisperMode !== 'Off') {
+                    applyWhisper(whisperMode, Number(e.target.value));
                   }
                 }}
                 style={{ flex: 1, height: '4px', accentColor: 'var(--accent-color)' }}

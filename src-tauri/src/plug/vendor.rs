@@ -81,6 +81,7 @@ fn hidden_command(program: &str) -> Command {
 fn normalize_whisper_mode(mode: &str) -> Option<&'static str> {
     match mode.trim().to_ascii_lowercase().as_str() {
         "off" => Some("Off"),
+        "on" => Some("Quiet"),
         "quieter" => Some("Quieter"),
         "quiet" => Some("Quiet"),
         "balanced" => Some("Balanced"),
@@ -91,7 +92,7 @@ fn normalize_whisper_mode(mode: &str) -> Option<&'static str> {
 fn normalize_battery_mode(mode: &str) -> Option<&'static str> {
     match mode.trim().to_ascii_lowercase().as_str() {
         "acmode" | "full" | "fullcharge" => Some("AcMode"),
-        "custom" => Some("Custom"),
+        "custom" | "standard" => Some("Custom"),
         "bestbattery" | "care" | "conservation" => Some("BestBattery"),
         _ => None,
     }
@@ -714,6 +715,29 @@ pub async fn apply_vendor_whisper(
             data: json!({}),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_battery_mode, normalize_whisper_mode};
+
+    #[test]
+    fn vendor_whisper_modes_match_frontend_options_and_legacy_aliases() {
+        assert_eq!(normalize_whisper_mode("Off"), Some("Off"));
+        assert_eq!(normalize_whisper_mode("Quiet"), Some("Quiet"));
+        assert_eq!(normalize_whisper_mode("Quieter"), Some("Quieter"));
+        assert_eq!(normalize_whisper_mode("Balanced"), Some("Balanced"));
+        assert_eq!(normalize_whisper_mode("On"), Some("Quiet"));
+    }
+
+    #[test]
+    fn vendor_battery_modes_match_frontend_options_and_legacy_aliases() {
+        assert_eq!(normalize_battery_mode("BestBattery"), Some("BestBattery"));
+        assert_eq!(normalize_battery_mode("Custom"), Some("Custom"));
+        assert_eq!(normalize_battery_mode("AcMode"), Some("AcMode"));
+        assert_eq!(normalize_battery_mode("Standard"), Some("Custom"));
+        assert_eq!(normalize_battery_mode("FullCharge"), Some("AcMode"));
+    }
 }
 
 #[tauri::command]

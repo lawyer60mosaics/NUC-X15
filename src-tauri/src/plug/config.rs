@@ -225,6 +225,18 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
         fan_data.monitor.sample_interval_ms = DEFAULT_MONITOR_SAMPLE_INTERVAL_MS.clamp(500, 1000);
     }
 
+    fan_data.appearance.time_theme_mode = match fan_data
+        .appearance
+        .time_theme_mode
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
+        "day" => "day".to_string(),
+        "night" => "night".to_string(),
+        _ => "auto".to_string(),
+    };
+
     fan_data
 }
 
@@ -242,6 +254,16 @@ pub fn saved_startup_takeover_enabled() -> bool {
     read_fan_data(&config_path)
         .map(|fan_data| fan_data.control.startup_takeover_enabled)
         .unwrap_or(false)
+}
+
+pub fn load_saved_fan_data() -> Result<FanData, String> {
+    let config_path = get_config_file_path()?;
+    if !config_path.exists() {
+        let defaults = default_fan_data();
+        write_fan_data(&config_path, &defaults)?;
+        return Ok(defaults);
+    }
+    read_fan_data(&config_path)
 }
 
 fn write_fan_data(path: &PathBuf, fan_data: &FanData) -> Result<(), String> {
@@ -309,13 +331,7 @@ pub async fn save_fan_config(fan_data: FanData) -> Result<(), String> {
 #[tauri::command]
 pub async fn load_fan_config() -> Result<FanData, String> {
     let config_path = get_config_file_path()?;
-    if !config_path.exists() {
-        let defaults = default_fan_data();
-        write_fan_data(&config_path, &defaults)?;
-        println!("配置文件不存在，已创建默认配置: {:?}", config_path);
-        return Ok(defaults);
-    }
-    let fan_data = read_fan_data(&config_path)?;
+    let fan_data = load_saved_fan_data()?;
     println!("风扇配置已加载: {:?}", config_path);
     Ok(fan_data)
 }
@@ -375,4 +391,29 @@ pub async fn export_monitor_log_csv(destination_path: String) -> Result<String, 
     }
     fs::copy(&src, &destination).map_err(|e| format!("导出监控日志失败: {}", e))?;
     Ok(destination.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_keeps_valid_time_theme_mode() {
+        let mut fan_data = FanData::default();
+        fan_data.appearance.time_theme_mode = "Night".to_string();
+
+        let normalized = normalize_fan_data(fan_data);
+
+        assert_eq!(normalized.appearance.time_theme_mode, "night");
+    }
+
+    #[test]
+    fn normalize_rejects_invalid_time_theme_mode() {
+        let mut fan_data = FanData::default();
+        fan_data.appearance.time_theme_mode = "unknown".to_string();
+
+        let normalized = normalize_fan_data(fan_data);
+
+        assert_eq!(normalized.appearance.time_theme_mode, "auto");
+    }
 }
