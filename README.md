@@ -1,75 +1,183 @@
-# NUCtool (NUC 风控矩阵)
+# NUCtool
 
-NUCtool 是一款专为 Intel NUC 及兼容平台（如 X15/X17 系列笔记本）设计的高性能硬件控制工具。它结合了现代化的“苏州式留白”设计美学与强大的 Rust 后端引擎，旨在为用户提供精准、稳定且优雅的硬件监控与管理体验。
+NUCtool 是面向 Intel NUC X15/X17 及兼容 Uniwill 平台的风扇、功耗、屏幕与外设控制工具。前端使用 React + Tauri v2，后端使用 Rust 直接对接 Windows WMI / Linux sysfs，并带有诊断、看门狗和独立进程哨兵，尽量把“界面卡住”和“风扇控制失效”拆开处理。
 
-## 核心特性
+## 当前能力
 
-### 1. 智能风扇控制 (Advanced Fan Control)
-- **多模式切换**：支持“静音”、“办公”、“游戏”、“性能”四种预设场景，以及自定义恒速模式。
-- **可视化曲线调节**：内置直观的拖拽式风扇曲线编辑器（基于 Chart.js），支持 15 个温度节点精准控制。
-- **平滑算法**：采用 EMA（指数移动平均）滤波和滞后（Hysteresis）算法，有效防止风扇在临界温度点频繁调速带来的“噪音抖动”。
-- **自适应斜坡**：支持转速上升与下降的独立步进控制，既能快速响应升温，又能平缓降温。
-- **紧急保护**：内置过温自动满转保护，并支持在极端高温下执行系统强制关机以保护硬件。
+### 风扇控制
 
-### 2. 功耗 (TDP) 与 性能管理
-- **实时读写**：支持 CPU 和 GPU 的 TDP 限制实时调节。
-- **TDP 锁定**：防止系统或 BIOS 自动重置功耗限制，确保性能释放稳定。
-- **TCC Offset 调节**：支持温度偏移量设置（部分型号支持）。
+- 支持静音、办公、游戏、性能、基准五种场景。
+- 支持 CPU/GPU 双曲线拖拽调节。
+- 支持恒速接管模式。
+- 支持配置保存、加载和启动后自动接管。
+- 支持异常温度过滤、转速斜坡、滞后控制和过温保护。
+- 支持风扇 Actor 后台运行，前端只负责发送策略和显示状态。
 
-### 3. RGB 灯效控制
-- **氛围管理**：支持对 NUC 前置面板或机身灯带进行颜色切换与状态管理。
+### 启动策略
 
-### 4. 系统集成
-- **跨平台支持**：同时支持 Windows (WMI 驱动) 和 Linux (Sysfs 接口)。
-- **原生体验**：深度集成系统托盘，支持最小化到托盘运行，防止误触关闭。
-- **开机自启**：支持一键开启/关闭随系统自动启动。
-- **权限管理**：Windows 端支持自动请求管理员权限以获取底层硬件访问能力。
+首页“启动与日夜策略”里有两个不同开关：
 
-### 5. 诊断与分析
-- **实时监控**：提供 CPU/GPU 温度与转速的实时趋势图表。
-- **日志导出**：支持将监控数据导出为 CSV 格式，方便进行性能分析。
-- **健康检查**：内置看门狗（Watchdog）机制，自动检测并恢复硬件通信挂死问题。
+- 程序开机自启动：通过 Tauri autostart 插件写入系统自启动项，让 Windows 登录后自动启动 NUCtool。
+- 启动后接管风扇：写入 `fan_config.json`，程序启动时读取保存策略并自动启动风扇控制。
+
+两者需要同时开启，才等于“开机后程序自动起来，并自动接管风扇”。
+
+### 哨兵与诊断
+
+- 内置风扇 Actor 看门狗，检测采样停滞、心跳过期和风扇异常。
+- 支持手动触发“哨兵重启测试”，用于验证停止/启动链路是否可用。
+- Windows 下会启动独立外部哨兵进程，主程序异常退出时尝试拉起主程序。
+- 首页/诊断页显示最近诊断摘要、哨兵事件、看门狗重启次数和硬件忙状态。
+- 诊断日志默认位于：
+
+```text
+C:\Users\<用户名>\AppData\Roaming\com.nuc.x15.fan.cyear.app\diagnostic.log
+```
+
+### 功耗与屏幕
+
+- 支持 CPU/GPU TDP 读取、设置和锁定。
+- 支持系统功耗模式快捷应用。
+- 支持屏幕刷新率读取和设置。
+- 支持阅读、视频、办公、游戏、标准等屏幕场景配置。
+- 屏幕切换命令带超时保护，避免 Windows 显示切换阻塞前端。
+
+### 厂商外设
+
+- 支持 Uniwill vendor service 状态检测。
+- 支持 Whisper 模式与 FPS 目标。
+- 支持电池充电模式与充电阈值。
+- 支持键盘背光、灯条亮度和灯效参数。
+
+### 界面
+
+- 前端为 React + TypeScript。
+- 使用 MiSans 本地字体，字体文件位于 `public/fonts/MiSans-Normal.ttf`。
+- 支持白天、夜晚、自动三种日夜场景，并保存到配置文件。
+- 当前 UI 采用卡片网格布局，白天模式为米白背景、黑色文字和细边框；夜晚模式提高了文本对比度。
+- 前端动效已关闭，优先保证稳定、可读和不卡顿。
 
 ## 技术栈
 
-- **后端**: [Tauri v2](https://tauri.app/), [Rust](https://www.rust-lang.org/)
-- **前端**: [Vue 3](https://vuejs.org/), [Element Plus](https://element-plus.org/), [Chart.js](https://www.chartjs.org/)
-- **硬件交互**: WMI (Windows), Sysfs (Linux)
+- 前端：React 18、TypeScript、Vite、Chart.js
+- 桌面壳：Tauri v2
+- 后端：Rust
+- Windows 硬件接口：WMI、PowerShell、Uniwill vendor service
+- Linux 硬件接口：sysfs
+- 打包：Tauri NSIS
 
-## 设计理念
+## 目录说明
 
-> “以青灰、留白和细线条重建信息层级，把趋势放在主位，把控制收回到辅助位。”
+```text
+src/                  React 前端
+src/hooks/            前端状态与 Tauri IPC Hook
+src/components/       页面组件
+src/styles/theme.css  全局主题、日夜模式和字体
+src-tauri/src/        Rust 后端
+src-tauri/src/plug/   风扇、TDP、诊断、哨兵、厂商服务实现
+src-tauri/icons/      主程序和哨兵图标资源
+public/fonts/         前端字体资源
+dist/                 Vite 构建产物
+```
 
-NUCtool 采用了独特的**苏州式留白**设计风格，强调信息的层级感。通过简约而不简单的 UI，让复杂的硬件参数变得清晰易读，减少用户的认知负荷。
+## 配置与日志
 
-## 安装与使用
+配置目录：
 
-### 环境要求
-- **Windows**: 建议 Windows 10/11，需要管理员权限。
-- **Linux**: 需要内核支持相应的硬件接口（如 `nct6775` 或类似驱动）。
+```text
+C:\Users\<用户名>\AppData\Roaming\com.nuc.x15.fan.cyear.app
+```
 
-### 开发环境配置
-1. 安装 Rust 环境。
-2. 安装 Node.js 及 npm/pnpm。
-3. 执行 `npm install` 安装依赖。
-4. 运行 `npm run dev` 启动开发模式。
+常用文件：
 
-### 构建
+```text
+fan_config.json              风扇策略、启动后接管、日夜场景
+diagnostic.log               诊断日志
+monitor_log.csv              监控采样导出源
+external_sentinel.state.json 外部哨兵状态
+```
+
+`fan_config.json` 中和启动相关的关键字段：
+
+```json
+{
+  "control": {
+    "startup_takeover_enabled": true
+  },
+  "appearance": {
+    "time_theme_mode": "auto"
+  }
+}
+```
+
+## 开发
+
+安装依赖：
+
 ```bash
-# 构建正式版本
+npm install
+```
+
+启动前端预览：
+
+```bash
+npm run dev
+```
+
+启动 Tauri 开发模式：
+
+```bash
+npm run tauri:dev
+```
+
+前端构建：
+
+```bash
 npm run build
 ```
 
-## 注意事项
+Tauri 打包：
 
-- **硬件风险**：由于涉及硬件功耗与转速控制，不当的设置可能会导致硬件过热或系统不稳定，请谨慎调节。
-- **驱动兼容性**：本项目主要针对 Intel NUC X15/X17 平台开发，其他平台可能无法完全兼容所有功能。
+```bash
+npm run tauri:build
+```
 
-## 贡献与支持
+按时间段生成安装包：
 
-作者: [cyear](https://github.com/cyear)
+```bash
+npm run package:time
+```
 
-如果您在使用过程中遇到任何问题，欢迎提交 Issue 或 Pull Request。
+## 验证
 
----
-*Copyright © 2024 cyear. Licensed under the MIT License.*
+前端类型检查和构建：
+
+```bash
+npm run build
+```
+
+Rust 测试：
+
+```bash
+cargo test --manifest-path .\src-tauri\Cargo.toml
+```
+
+Rust Clippy：
+
+```bash
+cargo clippy --manifest-path .\src-tauri\Cargo.toml -- -D warnings
+```
+
+## 使用注意
+
+- Windows 下建议以管理员权限运行，否则 WMI 可能返回 `0x80041003` 拒绝访问。
+- 如果提示硬件暂不可用，请等待 30 秒冷却后重试，或关闭其他正在访问 WMI/Uniwill 服务的软件。
+- 如果需要开机后自动接管风扇，请同时打开“程序开机自启动”和“启动后接管风扇”。
+- 退出程序时会尝试恢复系统默认风扇模式。
+- 调整 TDP、风扇曲线和恒速模式有硬件风险，请确认温度和转速正常后再长期使用。
+
+## 许可证
+
+Copyright © 2024 cyear.
+
+Licensed under the MIT License.
