@@ -110,12 +110,16 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     if window.maximize().is_err() {
         let _ = window.center();
     }
-    if let Err(e) = start_saved_startup_takeover(window.clone().into()) {
+    if let Some(startup_window) = app.get_webview_window("main") {
+        if let Err(e) = start_saved_startup_takeover(startup_window) {
+            app_log("startup", "warn", "takeover.failed", format!("error={}", e));
+        }
+    } else {
         app_log(
             "startup",
             "warn",
-            "takeover.failed",
-            format!("error={}", e),
+            "takeover.window_missing",
+            "main core window not found",
         );
     }
     let h = MenuItemBuilder::with_id("h", "显示界面").build(app)?;

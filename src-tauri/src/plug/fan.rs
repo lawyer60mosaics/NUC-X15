@@ -12,7 +12,7 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{Emitter, Manager, Window};
+use tauri::{Emitter, Manager, WebviewWindow};
 
 use crate::plug::{
     config::{default_fan_data, get_monitor_log_file_path, load_saved_fan_data},
@@ -49,7 +49,7 @@ static ACTOR_HEARTBEAT: AtomicU64 = AtomicU64::new(0);
 static ACTOR_HUNG: AtomicBool = AtomicBool::new(false);
 static FAN_ACTOR_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LAST_SENTINEL_RESTART_MS: AtomicU64 = AtomicU64::new(0);
-static LAST_RUNTIME: RwLock<Option<(FanData, Window)>> = RwLock::new(None);
+static LAST_RUNTIME: RwLock<Option<(FanData, WebviewWindow)>> = RwLock::new(None);
 const INVALID_TEMP_RELEASE_THRESHOLD: u8 = 3;
 const TDP_CACHE_TTL_MS: u64 = 5_000;
 const TDP_COALESCE_WAIT_MS: u64 = 1_500;
@@ -251,13 +251,13 @@ pub fn init_snapshot(snap: Arc<RwLock<FanActorSnapshot>>) {
     SNAPSHOT.set(snap).ok();
 }
 
-fn remember_runtime(fan_data: &FanData, window: &Window) {
+fn remember_runtime(fan_data: &FanData, webview_window: &WebviewWindow) {
     if let Ok(mut runtime) = LAST_RUNTIME.write() {
-        *runtime = Some((fan_data.clone(), window.clone()));
+        *runtime = Some((fan_data.clone(), webview_window.clone()));
     }
 }
 
-pub fn start_saved_startup_takeover(window: Window) -> Result<(), String> {
+pub fn start_saved_startup_takeover(webview_window: WebviewWindow) -> Result<(), String> {
     let fan_data = load_saved_fan_data()?;
     if !fan_data.control.startup_takeover_enabled {
         app_log(
@@ -279,9 +279,12 @@ pub fn start_saved_startup_takeover(window: Window) -> Result<(), String> {
     let mode = fan_data.control.mode.as_str().to_string();
     let constant = is_constant_mode(&fan_data.control);
     let speed = fan_data.control.constant_speed;
-    remember_runtime(&fan_data, &window);
+    remember_runtime(&fan_data, &webview_window);
     fan_actor_sender()
-        .try_send(FanActorMessage::Start { fan_data, window })
+        .try_send(FanActorMessage::Start {
+            fan_data,
+            webview_window,
+        })
         .map_err(|error| format!("启动后自动接管排队失败: {}", error))?;
     app_log(
         "startup",
@@ -313,7 +316,7 @@ pub(crate) fn init_com_on_thread() {}
 enum FanActorMessage {
     Start {
         fan_data: FanData,
-        window: Window,
+        webview_window: WebviewWindow,
     },
     UpdatePolicy {
         fan_data: FanData,
@@ -427,7 +430,7 @@ fn apply_fan_curve(
     driver: &ApiFan,
     state: &mut ControlState,
     speeds: &FanSpeeds,
-    window: Option<&Window>,
+    webview_window: Option<&WebviewWindow>,
 ) {
     let cpu_out = speeds.left_temp;
     let gpu_out = speeds.right_temp;
@@ -528,10 +531,10 @@ fn apply_fan_curve(
         // 动态模式切换使用平滑温度，避免办公场景被瞬时读数尖峰误触发高转。
         update_dynamic_mode(fan_data, state, cpu_use, gpu_use);
     }
-    update_tray_status(window, &state.active_mode, cpu_out, gpu_out);
+    update_tray_status(webview_window, &state.active_mode, cpu_out, gpu_out);
 
     // 告警仍使用原始温度，保证高温风险不被平滑延迟掩盖。
-    process_alerts(fan_data, state, cpu_out, gpu_out, window);
+    process_alerts(fan_data, state, cpu_out, gpu_out, webview_window);
 
     println!(
         "CPU:{}°C (EMA {:.2}) GPU:{}°C (EMA {:.2}) cacheL:{}% cacheR:{}%",
@@ -965,12 +968,12 @@ fn update_dynamic_mode(fan_data: &FanData, state: &mut ControlState, cpu_temp: i
 }
 
 fn update_tray_status(
-    window: Option<&Window>,
+    webview_window: Option<&WebviewWindow>,
     mode: &FanControlMode,
     cpu_temp: i64,
     gpu_temp: i64,
 ) {
-    let Some(win) = window else { return };
+    let Some(win) = webview_window else { return };
     let Some(tray) = win.app_handle().tray_by_id("main_tray") else {
         return;
     };
@@ -1012,7 +1015,7 @@ fn process_alerts(
     state: &mut ControlState,
     cpu_temp: i64,
     gpu_temp: i64,
-    window: Option<&Window>,
+    webview_window: Option<&WebviewWindow>,
 ) {
     let cpu_threshold = fan_data.alerts.cpu.threshold;
     let gpu_threshold = fan_data.alerts.gpu.threshold;
@@ -1045,12 +1048,22 @@ fn process_alerts(
 
     if !state.cpu_alert_active && state.alert_cpu_high_count >= cpu_confirm {
         state.cpu_alert_active = true;
-        apply_alert_actions("CPU", cpu_temp, &fan_data.alerts.cpu.actions, window);
+        apply_alert_actions(
+            "CPU",
+            cpu_temp,
+            &fan_data.alerts.cpu.actions,
+            webview_window,
+        );
     }
 
     if !state.gpu_alert_active && state.alert_gpu_high_count >= gpu_confirm {
         state.gpu_alert_active = true;
-        apply_alert_actions("GPU", gpu_temp, &fan_data.alerts.gpu.actions, window);
+        apply_alert_actions(
+            "GPU",
+            gpu_temp,
+            &fan_data.alerts.gpu.actions,
+            webview_window,
+        );
     }
 
     if state.cpu_alert_active && state.alert_cpu_recover_count >= cpu_confirm {
@@ -1071,7 +1084,7 @@ fn apply_alert_actions(
     sensor: &str,
     temp: i64,
     actions: &crate::plug::struct_set::AlertActions,
-    window: Option<&Window>,
+    webview_window: Option<&WebviewWindow>,
 ) {
     if actions.log {
         println!("[告警] {} 温度达到 {}°C", sensor, temp);
@@ -1087,7 +1100,7 @@ fn apply_alert_actions(
         schedule_force_shutdown(sensor, temp);
     }
 
-    if let Some(win) = window {
+    if let Some(win) = webview_window {
         if actions.popup || actions.sound || actions.force_shutdown {
             let payload = serde_json::json!({
                 "sensor": sensor,
@@ -1318,7 +1331,7 @@ fn sentinel_restart_control(reason: &str, force: bool) -> bool {
         .read()
         .ok()
         .and_then(|runtime| runtime.as_ref().cloned());
-    let Some((fan_data, window)) = runtime else {
+    let Some((fan_data, webview_window)) = runtime else {
         app_log(
             "fan_sentinel",
             "warn",
@@ -1349,7 +1362,10 @@ fn sentinel_restart_control(reason: &str, force: bool) -> bool {
     }
 
     let sender = fan_actor_sender();
-    match sender.try_send(FanActorMessage::Start { fan_data, window }) {
+    match sender.try_send(FanActorMessage::Start {
+        fan_data,
+        webview_window,
+    }) {
         Ok(()) => {
             app_log(
                 "fan_sentinel",
@@ -1471,15 +1487,21 @@ fn record_sentinel_restart_result(started_ms: u64) {
     }
 }
 
-fn queue_manual_sentinel_test_restart(fan_data: FanData, window: Window) -> Result<(), String> {
-    remember_runtime(&fan_data, &window);
+fn queue_manual_sentinel_test_restart(
+    fan_data: FanData,
+    webview_window: WebviewWindow,
+) -> Result<(), String> {
+    remember_runtime(&fan_data, &webview_window);
     let sender = fan_actor_sender();
     if !ACTOR_HUNG.load(Ordering::SeqCst) {
         sender
             .try_send(FanActorMessage::Stop)
             .map_err(|error| format!("哨兵自检停止命令排队失败: {}", error))?;
         sender
-            .try_send(FanActorMessage::Start { fan_data, window })
+            .try_send(FanActorMessage::Start {
+                fan_data,
+                webview_window,
+            })
             .map_err(|error| format!("哨兵自检启动命令排队失败: {}", error))?;
         app_log(
             "fan_sentinel",
@@ -1490,7 +1512,7 @@ fn queue_manual_sentinel_test_restart(fan_data: FanData, window: Window) -> Resu
         return Ok(());
     }
 
-    remember_runtime(&fan_data, &window);
+    remember_runtime(&fan_data, &webview_window);
     if sentinel_restart_control("manual_test_hung_actor", true) {
         Ok(())
     } else {
@@ -1697,7 +1719,7 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
             };
             clear_hardware_unavailable("driver_init_ok");
             app_log("fan_actor", "info", "driver.init", "ApiFan initialized");
-            let mut runtime: Option<(FanData, Window, ControlState)> = None;
+            let mut runtime: Option<(FanData, WebviewWindow, ControlState)> = None;
             let mut last_iter_finished: Option<Instant> = None;
             let mut tdp_lock: Option<(TDP, Instant)> = None;
 
@@ -1718,8 +1740,11 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                 // 1. 排空所有控制消息（包括 TDP/RGB 请求）
                 loop {
                     match rx.try_recv() {
-                        Ok(FanActorMessage::Start { fan_data, window }) => {
-                            remember_runtime(&fan_data, &window);
+                        Ok(FanActorMessage::Start {
+                            fan_data,
+                            webview_window,
+                        }) => {
+                            remember_runtime(&fan_data, &webview_window);
                             app_log(
                                 "fan_actor",
                                 "info",
@@ -1743,7 +1768,7 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                             let mut ctrl_state = ControlState::new(fan_data.control.mode.clone());
                             ctrl_state.constant_mode = is_constant_mode(&fan_data.control);
                             ctrl_state.constant_speed = fan_data.control.constant_speed;
-                            runtime = Some((fan_data, window, ctrl_state));
+                            runtime = Some((fan_data, webview_window, ctrl_state));
                         }
                         Ok(FanActorMessage::UpdatePolicy { fan_data }) => {
                             if let Ok(mut last_runtime) = LAST_RUNTIME.write() {
@@ -1998,7 +2023,7 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                     }
                 }
 
-                if let Some((ref fan_data, ref window, ref mut ctrl_state)) = runtime {
+                if let Some((ref fan_data, ref webview_window, ref mut ctrl_state)) = runtime {
                     // 检查是否被外部看门狗标记为挂死
                     if ACTOR_HUNG.load(Ordering::SeqCst) {
                         app_log(
@@ -2115,7 +2140,7 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                     let speeds = driver.get_fan_speeds();
 
                     // 应用风扇曲线控制
-                    apply_fan_curve(fan_data, &driver, ctrl_state, &speeds, Some(window));
+                    apply_fan_curve(fan_data, &driver, ctrl_state, &speeds, Some(webview_window));
                     last_iter_finished = Some(Instant::now());
 
                     // 更新共享快照供 async 层零阻塞读取
@@ -2460,7 +2485,7 @@ pub fn request_get_rgb_color() -> Result<bool, String> {
 /// 启动风扇数据推送线程（每 2.5 秒向前端 emit 一次）
 /// 使用 AtomicBool 防止重复调用累积线程；emit 失败时安全退出而非 panic
 #[tauri::command]
-pub async fn get_fan_speeds(window: Window) {
+pub async fn get_fan_speeds(webview_window: WebviewWindow) {
     if SPEED_PUSH_RUNNING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -2490,13 +2515,13 @@ pub async fn get_fan_speeds(window: Window) {
                 MAX_MONITOR_SAMPLE_INTERVAL_MS,
             );
             thread::sleep(Duration::from_millis(interval_ms));
-            if matches!(window.is_visible(), Ok(false)) {
+            if matches!(webview_window.is_visible(), Ok(false)) {
                 hidden_ticks += 1;
                 if hidden_ticks == 1 || hidden_ticks.is_multiple_of(30) {
                     app_log(
                         "fan_push",
                         "debug",
-                        "window.hidden",
+                        "WebviewWindow.hidden",
                         format!("hidden_ticks={} interval_ms={}", hidden_ticks, interval_ms),
                     );
                 }
@@ -2514,7 +2539,7 @@ pub async fn get_fan_speeds(window: Window) {
                 gpu_power_limit_w: snap.gpu_power_limit_w,
                 gpu_power_short_w: snap.gpu_power_short_w,
             };
-            if let Err(e) = window.emit("get-fan-speeds", speeds) {
+            if let Err(e) = webview_window.emit("get-fan-speeds", speeds) {
                 app_log("fan_push", "warn", "emit.failed", format!("error={:?}", e));
                 println!("推送失败（窗口可能已销毁）: {:?}，推送线程退出", e);
                 break;
@@ -2536,7 +2561,10 @@ pub async fn get_fan_speeds(window: Window) {
 }
 
 #[tauri::command]
-pub async fn start_fan_control(window: Window, fan_data: serde_json::Value) -> Result<(), String> {
+pub async fn start_fan_control(
+    webview_window: WebviewWindow,
+    fan_data: serde_json::Value,
+) -> Result<(), String> {
     clear_hardware_unavailable("manual_start");
 
     let fan_data: FanData = match serde_json::from_value(fan_data) {
@@ -2557,18 +2585,18 @@ pub async fn start_fan_control(window: Window, fan_data: serde_json::Value) -> R
     let sender = fan_actor_sender();
     if let Err(e) = sender.try_send(FanActorMessage::Start {
         fan_data: fan_data.clone(),
-        window: window.clone(),
+        webview_window: webview_window.clone(),
     }) {
         println!("发送启动命令到风扇 Actor 失败: {}", e);
         return Err(format!("风扇控制通道已满: {}", e));
     }
-    remember_runtime(&fan_data, &window);
+    remember_runtime(&fan_data, &webview_window);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn force_fan_sentinel_restart(
-    window: Window,
+    webview_window: WebviewWindow,
     fan_data: Option<serde_json::Value>,
 ) -> Result<String, String> {
     clear_hardware_unavailable("manual_sentinel_test");
@@ -2604,7 +2632,7 @@ pub async fn force_fan_sentinel_restart(
         ),
         Ordering::Relaxed,
     );
-    remember_runtime(&fan_data, &window);
+    remember_runtime(&fan_data, &webview_window);
 
     let started_ms = now_ms_u64();
     app_log(
@@ -2619,7 +2647,7 @@ pub async fn force_fan_sentinel_restart(
         ),
     );
 
-    queue_manual_sentinel_test_restart(fan_data, window)?;
+    queue_manual_sentinel_test_restart(fan_data, webview_window)?;
 
     thread::spawn(move || record_sentinel_restart_result(started_ms));
 
