@@ -41,6 +41,7 @@ pub struct VendorLightingApplyResult {
     pub b: i64,
     pub keyboard_brightness: i64,
     pub lightbar_brightness: i64,
+    pub lightbar_breathing: bool,
     pub status: VendorServiceStatus,
 }
 
@@ -403,15 +404,17 @@ fn vendor_lighting_script(
     b: i64,
     keyboard_brightness: i64,
     lightbar_brightness: i64,
+    lightbar_breathing: bool,
 ) -> String {
     let light_r = r * lightbar_brightness / MAX_RGB_CHANNEL;
     let light_g = g * lightbar_brightness / MAX_RGB_CHANNEL;
     let light_b = b * lightbar_brightness / MAX_RGB_CHANNEL;
+    let lightbar_breathing_ps = if lightbar_breathing { "$true" } else { "$false" };
     vendor_status_script()
         .replace(
             "Add-Type -Path (Join-Path $sdkPath 'UniwillSdkClient.dll')",
             &format!(
-                "Add-Type -Path (Join-Path $sdkPath 'UniwillSdkClient.dll')\n$targetRgbR = {r}\n$targetRgbG = {g}\n$targetRgbB = {b}\n$targetKeyboardBrightness = {keyboard_brightness}\n$targetLightR = {light_r}\n$targetLightG = {light_g}\n$targetLightB = {light_b}"
+                "Add-Type -Path (Join-Path $sdkPath 'UniwillSdkClient.dll')\n$targetRgbR = {r}\n$targetRgbG = {g}\n$targetRgbB = {b}\n$targetKeyboardBrightness = {keyboard_brightness}\n$targetLightR = {light_r}\n$targetLightG = {light_g}\n$targetLightB = {light_b}\n$targetLightbarBreathing = {lightbar_breathing_ps}"
             ),
         )
         .replace(
@@ -442,7 +445,7 @@ fn vendor_lighting_script(
   $dcSetting.R_Brightness = $targetLightR
   $dcSetting.G_Brightness = $targetLightG
   $dcSetting.B_Brightness = $targetLightB
-  $lightbarProfile.BreathingEnable = $false
+  $lightbarProfile.BreathingEnable = $targetLightbarBreathing
   $lightbarProfile.AcSetting = $acSetting
   $lightbarProfile.DcSetting = $dcSetting
   $client.SetLightbarProfile($lightbarProfile)
@@ -460,7 +463,7 @@ fn vendor_lighting_script(
       keyColorCount = 0
     }
     lightbar = [pscustomobject]@{
-      breathing = $false
+      breathing = $targetLightbarBreathing
       ac = [pscustomobject]@{
         effect = 'Monocolor'
         r = $targetLightR
@@ -600,13 +603,21 @@ fn apply_vendor_lighting_blocking(
     b: i64,
     keyboard_brightness: i64,
     lightbar_brightness: i64,
+    lightbar_breathing: bool,
 ) -> Result<VendorLightingApplyResult, String> {
     let r = r.clamp(0, MAX_RGB_CHANNEL);
     let g = g.clamp(0, MAX_RGB_CHANNEL);
     let b = b.clamp(0, MAX_RGB_CHANNEL);
     let keyboard_brightness = keyboard_brightness.clamp(0, MAX_LIGHT_BRIGHTNESS);
     let lightbar_brightness = lightbar_brightness.clamp(0, MAX_LIGHT_BRIGHTNESS);
-    let script = vendor_lighting_script(r, g, b, keyboard_brightness, lightbar_brightness);
+    let script = vendor_lighting_script(
+        r,
+        g,
+        b,
+        keyboard_brightness,
+        lightbar_brightness,
+        lightbar_breathing,
+    );
 
     let stdout = run_powershell_json(&script, VENDOR_WRITE_TIMEOUT)?;
     let data = serde_json::from_str::<Value>(&stdout)
@@ -637,6 +648,7 @@ fn apply_vendor_lighting_blocking(
         b,
         keyboard_brightness,
         lightbar_brightness,
+        lightbar_breathing,
         status,
     })
 }
@@ -679,9 +691,18 @@ pub async fn apply_vendor_lighting(
     b: i64,
     keyboard_brightness: i64,
     lightbar_brightness: i64,
+    lightbar_breathing: Option<bool>,
 ) -> Result<VendorLightingApplyResult, String> {
+    let lightbar_breathing = lightbar_breathing.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        apply_vendor_lighting_blocking(r, g, b, keyboard_brightness, lightbar_brightness)
+        apply_vendor_lighting_blocking(
+            r,
+            g,
+            b,
+            keyboard_brightness,
+            lightbar_brightness,
+            lightbar_breathing,
+        )
     })
     .await
     .map_err(|e| format!("vendor lighting task failed: {}", e))?
@@ -768,6 +789,7 @@ pub async fn apply_vendor_lighting(
     b: i64,
     keyboard_brightness: i64,
     lightbar_brightness: i64,
+    lightbar_breathing: Option<bool>,
 ) -> Result<VendorLightingApplyResult, String> {
     Ok(VendorLightingApplyResult {
         r: r.clamp(0, MAX_RGB_CHANNEL),
@@ -775,6 +797,7 @@ pub async fn apply_vendor_lighting(
         b: b.clamp(0, MAX_RGB_CHANNEL),
         keyboard_brightness: keyboard_brightness.clamp(0, MAX_LIGHT_BRIGHTNESS),
         lightbar_brightness: lightbar_brightness.clamp(0, MAX_LIGHT_BRIGHTNESS),
+        lightbar_breathing: lightbar_breathing.unwrap_or(false),
         status: VendorServiceStatus {
             ok: false,
             detail: "Vendor lighting settings are currently implemented for Windows only"

@@ -101,7 +101,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
     labels: chartLabels,
     datasets: [
       {
-        label: 'CPU 风扇速度 (%)',
+        label: 'CPU FAN SPEED (%)',
         data: cpuSpeeds,
         borderColor: '#00c6ff',
         backgroundColor: 'rgba(0, 198, 255, 0.08)',
@@ -115,7 +115,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
         fill: true,
       },
       {
-        label: 'GPU 风扇速度 (%)',
+        label: 'GPU FAN SPEED (%)',
         data: gpuSpeeds,
         borderColor: '#30d158',
         backgroundColor: 'rgba(48, 209, 88, 0.08)',
@@ -244,9 +244,9 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
   );
 
   const themeOptions: Array<{ value: TimeThemeMode; label: string }> = [
-    { value: 'auto', label: '自动' },
-    { value: 'day', label: '白天' },
-    { value: 'night', label: '夜晚' },
+    { value: 'auto', label: 'AUTO' },
+    { value: 'day', label: 'DAY' },
+    { value: 'night', label: 'NIGHT' },
   ];
 
   return (
@@ -353,10 +353,10 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
         <GlassCard className="module-card-lg" style={{ padding: '18px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 className="card-title">
-              双向液态温控矩阵 {constantSpeedEnabled && <span style={{ fontSize: '12px', color: '#ff9f0a', marginLeft: '6px' }}>(恒速已接管)</span>}
+              BIDIRECTIONAL THERMAL MATRIX {constantSpeedEnabled && <span style={{ fontSize: '12px', color: '#ff9f0a', marginLeft: '6px' }}>(CONSTANT SPEED ACTIVE)</span>}
             </h3>
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-              {constantSpeedEnabled ? '温控曲线锁定中，禁用拖拽' : '鼠标随意拖拽曲线节点调整目标转速'}
+              {constantSpeedEnabled ? 'THERMAL CURVE LOCKED; DRAGGING DISABLED' : 'DRAG CURVE NODES TO ADJUST TARGET SPEED'}
             </span>
           </div>
           
@@ -370,7 +370,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
           
           <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>恒速静音接管</span>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>CONSTANT SILENT CONTROL</span>
               
               {/* 开关 */}
               <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}>
@@ -404,11 +404,11 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
             </div>
 
             <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
-              开启后将无视下方温度曲线，风扇将以恒定功率运转以保持极致静音节奏。
+              Ignores the temperature curve and runs the fans at a constant output for silent operation.
             </p>
 
             <LiquidSlider
-              label="恒定风扇负荷"
+              label="CONSTANT FAN LOAD"
               min={20}
               max={100}
               value={constantSpeed}
@@ -419,14 +419,14 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
           </GlassCard>
 
           <GlassCard style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>启动与日夜策略</div>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>STARTUP & DAY/NIGHT POLICY</div>
 
             <div style={{ display: 'grid', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                 <div>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>程序开机自启动</div>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>LAUNCH AT STARTUP</div>
                   <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '2px 0 0', lineHeight: 1.35 }}>
-                    Windows 登录后自动启动 NUCtool 主程序。
+                    Launch NUCtool automatically after Windows sign-in.
                   </p>
                 </div>
                 {renderSwitch(autostartEnabled, () => setAutostartEnabled(!autostartEnabled), autostartBusy)}
@@ -434,9 +434,9 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                 <div>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>启动后接管风扇</div>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>TAKE OVER FANS ON STARTUP</div>
                   <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '2px 0 0', lineHeight: 1.35 }}>
-                    程序启动后加载保存策略并接管 EC 温控。
+                    Load the saved policy and take over EC thermal control on launch.
                   </p>
                 </div>
                 {renderSwitch(startupTakeoverEnabled, () => setStartupTakeoverEnabled(!startupTakeoverEnabled))}
@@ -444,7 +444,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
             </div>
 
             <div style={{ borderTop: '1px solid var(--divider-color)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>日夜场景</div>
+              <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>DAY/NIGHT SCENE</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                 {themeOptions.map((option) => {
                   const selected = timeThemeMode === option.value;
@@ -470,7 +470,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                 })}
               </div>
               <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.35 }}>
-                选择后立即保存；自动模式按 07:00-18:00 使用白天，其余时间使用夜晚。
+                Saves immediately; AUTO uses DAY from 07:00-18:00 and NIGHT otherwise.
               </p>
             </div>
           </GlassCard>
@@ -494,7 +494,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                   transition: 'all 0.2s ease',
                 }}
               >
-                {running ? '停止风控' : '启动温控接管'}
+                {running ? 'STOP THERMAL CONTROL' : 'START THERMAL CONTROL'}
               </button>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -513,7 +513,7 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                   transition: 'all 0.2s ease',
                 }}
               >
-                加载配置
+                LOAD CONFIGURATION
               </button>
               <button 
                 onClick={saveConfig}
@@ -530,15 +530,15 @@ export const OverviewSection: React.FC<OverviewSectionProps> = ({
                   transition: 'all 0.2s ease',
                 }}
               >
-                保存配置
+                SAVE CONFIGURATION
               </button>
             </div>
 
             <hr style={{ border: 'none', borderBottom: '1px solid var(--divider-color)', margin: '4px 0' }} />
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-secondary)', opacity: 0.7 }}>
-              <span>看门狗哨兵: <strong style={{ color: running ? '#30d158' : '#8e8e93' }}>{actorStateText}</strong></span>
-              <span>拉取时间: <strong>{lastSampledTime}</strong></span>
+              <span>WATCHDOG: <strong style={{ color: running ? '#30d158' : '#8e8e93' }}>{actorStateText}</strong></span>
+              <span>LAST SAMPLE: <strong>{lastSampledTime}</strong></span>
             </div>
           </GlassCard>
 

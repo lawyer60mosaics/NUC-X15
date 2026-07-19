@@ -25,8 +25,8 @@ fn mode_spec(mode: &FanControlMode) -> ModeSpec {
             gpu_full_speed_temp: 85,
             ramp_step_percent_per_sec: 2,
             hysteresis_bandwidth: 8,
-            cpu_fan_max_percent: 35,
-            gpu_fan_max_percent: 30,
+            cpu_fan_max_percent: 45,
+            gpu_fan_max_percent: 40,
         },
         FanControlMode::Office => ModeSpec {
             cpu_start_temp: 45,
@@ -37,8 +37,8 @@ fn mode_spec(mode: &FanControlMode) -> ModeSpec {
             gpu_full_speed_temp: 82,
             ramp_step_percent_per_sec: 3,
             hysteresis_bandwidth: 5,
-            cpu_fan_max_percent: 55,
-            gpu_fan_max_percent: 45,
+            cpu_fan_max_percent: 70,
+            gpu_fan_max_percent: 65,
         },
         FanControlMode::Gaming => ModeSpec {
             cpu_start_temp: 40,
@@ -49,8 +49,8 @@ fn mode_spec(mode: &FanControlMode) -> ModeSpec {
             gpu_full_speed_temp: 83,
             ramp_step_percent_per_sec: 5,
             hysteresis_bandwidth: 3,
-            cpu_fan_max_percent: 80,
-            gpu_fan_max_percent: 90,
+            cpu_fan_max_percent: 90,
+            gpu_fan_max_percent: 100,
         },
         FanControlMode::Performance => ModeSpec {
             cpu_start_temp: 35,

@@ -85,6 +85,34 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
       };
     }
 
+    case 'get_hot_processes': {
+      const sec = Date.now() / 1000;
+      const names = ['Code', 'chrome', 'NUCtool', 'powershell', 'explorer', 'Discord', 'Photoshop', 'GameClient'];
+      const items = names
+        .map((name, idx) => {
+          const cpu = Math.max(0, Math.sin(sec / (idx + 2)) * 18 + (idx === 0 ? 32 : idx === 1 ? 24 : 8) - idx * 2);
+          const memory = 160 + idx * 145 + Math.cos(sec / 5 + idx) * 40;
+          return {
+            pid: 2400 + idx * 137,
+            name,
+            cpu_percent: Math.round(cpu * 10) / 10,
+            memory_mb: Math.round(memory * 10) / 10,
+            heat_score: Math.round((cpu + memory / 512) * 10) / 10,
+          };
+        })
+        .filter((item) => item.heat_score > 0)
+        .sort((a, b) => b.heat_score - a.heat_score)
+        .slice(0, Number(args?.limit ?? 10));
+
+      return {
+        sampled_at_ms: Date.now(),
+        sample_ms: 800,
+        logical_cores: 16,
+        note: 'Mock: CPU is a short-window equivalent load; 100% equals one fully loaded logical core.',
+        items,
+      };
+    }
+
     case 'autostart_status':
       return MOCK_STATE.autostart;
 
@@ -134,10 +162,10 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
       if (args && args.mode) {
         MOCK_STATE.activeMode = args.mode;
         // 模拟各模式下的默认 TDP
-        if (args.mode === 'silent') { MOCK_STATE.cpuTdp = { pl1: 25, pl2: 35 }; }
-        else if (args.mode === 'office') { MOCK_STATE.cpuTdp = { pl1: 45, pl2: 65 }; }
-        else if (args.mode === 'gaming') { MOCK_STATE.cpuTdp = { pl1: 80, pl2: 105 }; }
-        else if (args.mode === 'performance') { MOCK_STATE.cpuTdp = { pl1: 110, pl2: 125 }; }
+        if (args.mode === 'silent' || args.mode === 'powersave') { MOCK_STATE.cpuTdp = { pl1: 25, pl2: 38 }; }
+        else if (args.mode === 'office' || args.mode === 'balanced') { MOCK_STATE.cpuTdp = { pl1: 45, pl2: 65 }; }
+        else if (args.mode === 'gaming') { MOCK_STATE.cpuTdp = { pl1: 45, pl2: 65 }; }
+        else if (args.mode === 'performance') { MOCK_STATE.cpuTdp = { pl1: 55, pl2: 80 }; }
         else if (args.mode === 'benchmark') { MOCK_STATE.cpuTdp = { pl1: 135, pl2: 145 }; }
       }
       return true;
@@ -148,7 +176,7 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
         supported_hz: [40, 60, 90, 120, 144, 165],
         device_count: 1,
         detail: 'EDID - BOE09FA (15.6" UHD 165Hz)',
-        devices: [`内嵌显示器 2560x1440 ${MOCK_STATE.displayRefresh}Hz supported=[40,60,90,120,144,165]`],
+      devices: [`Internal display 2560x1440 ${MOCK_STATE.displayRefresh}Hz supported=[40,60,90,120,144,165]`],
       };
 
     case 'set_display_refresh_rate':
@@ -159,8 +187,8 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
         current_hz: MOCK_STATE.displayRefresh,
         supported_hz: [40, 60, 90, 120, 144, 165],
         device_count: 1,
-        detail: 'EDID 修改成功',
-        devices: [`内嵌显示器 2560x1440 ${MOCK_STATE.displayRefresh}Hz`],
+        detail: 'EDID updated successfully',
+        devices: [`Internal display 2560x1440 ${MOCK_STATE.displayRefresh}Hz`],
       };
 
     case 'apply_display_scene_profile': {
@@ -175,26 +203,26 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
       };
       MOCK_STATE.displayRefresh = sceneHz[mode] || 90;
       const labels: Record<string, string> = {
-        reading: '阅读',
-        video: '视频',
-        gaming: '游戏',
-        office: '办公',
-        standard: '标准',
+        reading: 'READING',
+        video: 'VIDEO',
+        gaming: 'GAMING',
+        office: 'OFFICE',
+        standard: 'STANDARD',
       };
       return {
         mode,
-        label: labels[mode] || '标准',
+        label: labels[mode] || 'STANDARD',
         current_hz: MOCK_STATE.displayRefresh,
         supported_hz: [40, 60, 90, 120, 144, 165],
         detail: `Mock display scene ${mode} -> ${MOCK_STATE.displayRefresh}Hz`,
-        notes: ['浏览器预览模式仅模拟刷新率切换。'],
+        notes: ['Browser preview mode simulates refresh-rate switching only.'],
       };
     }
 
     case 'get_vendor_service_status':
       return {
         ok: true,
-        detail: 'UniwillService 连接正常',
+        detail: 'UniwillService connected',
         data: {
           connected: true,
           packageFound: true,
@@ -213,7 +241,7 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
       return {
         mode: MOCK_STATE.vendorWhisper,
         fps: MOCK_STATE.vendorWhisper === 'Off' ? 0 : Number(args?.fps ?? 60),
-        status: { ok: true, detail: 'Whisper 模式应用成功', data: {} }
+        status: { ok: true, detail: 'Whisper mode applied', data: {} }
       };
 
     case 'apply_vendor_battery':
@@ -224,7 +252,7 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
       return {
         mode: MOCK_STATE.vendorBatteryMode,
         level: MOCK_STATE.vendorBatteryLevel,
-        status: { ok: true, detail: '电池充电阈值设置成功', data: {} }
+        status: { ok: true, detail: 'Battery charge limit applied', data: {} }
       };
 
     case 'apply_vendor_lighting':
@@ -236,6 +264,7 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
         if (args.keyboard_brightness !== undefined) MOCK_STATE.keyboardBrightness = args.keyboard_brightness;
         if (args.lightbarBrightness !== undefined) MOCK_STATE.lightbarBrightness = args.lightbarBrightness;
         if (args.lightbar_brightness !== undefined) MOCK_STATE.lightbarBrightness = args.lightbar_brightness;
+        if (args.lightbarBreathing !== undefined) MOCK_STATE.lightbarBreathing = args.lightbarBreathing;
         if (args.lightbar_breathing !== undefined) MOCK_STATE.lightbarBreathing = args.lightbar_breathing;
       }
       return {
@@ -244,7 +273,8 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
         b: MOCK_STATE.keyboardB,
         keyboard_brightness: MOCK_STATE.keyboardBrightness,
         lightbar_brightness: MOCK_STATE.lightbarBrightness,
-        status: { ok: true, detail: '背光与灯效参数已应用', data: {} }
+        lightbar_breathing: MOCK_STATE.lightbarBreathing,
+        status: { ok: true, detail: 'Backlight and lighting parameters applied', data: {} }
       };
 
     case 'get_diagnostic_summary':
@@ -255,7 +285,7 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
         total_lines: MOCK_STATE.diagnostics.totalLines,
         scanned_lines: MOCK_STATE.diagnostics.totalLines,
         health: 'ok',
-        summary: `温控核心与自愈子进程通信畅通。已累计拦截并解析 ${MOCK_STATE.diagnostics.totalLines} 行诊断事件。`,
+        summary: `Thermal core and recovery subprocess are connected. Parsed ${MOCK_STATE.diagnostics.totalLines} diagnostic events.`,
         warning_count: MOCK_STATE.diagnostics.warningCount,
         error_count: MOCK_STATE.diagnostics.errorCount,
         invoke_failure_count: 0,
@@ -276,7 +306,7 @@ export async function invokeBackend(command: string, args?: any): Promise<any> {
     case 'force_fan_sentinel_restart':
       MOCK_STATE.diagnostics.watchdogReloadCount += 1;
       MOCK_STATE.diagnostics.totalLines += 2;
-      return '自愈哨兵重启成功（本地仿真验证）';
+      return 'Recovery watchdog restart succeeded (local simulation).';
 
     case 'save_fan_config':
       MOCK_STATE.fanConfig = args?.fanData ?? null;
@@ -309,9 +339,9 @@ export function useTauriEvent(eventName: string, handler: (payload: any) => void
         if (eventName === 'diagnostic_log' || eventName === 'diag') {
           mockInterval = setInterval(() => {
             const logs = [
-              { level: 'info', event: 'ipc.invoke', msg: '调用 get_fan_control_snapshot 成功' },
-              { level: 'info', event: 'temp.poll', msg: `当前传感器温度: CPU=${MOCK_STATE.keyboardBrightness + 25}°C` },
-              { level: 'warn', event: 'tdp.check', msg: '检测到功耗配置有微弱波动，正在同步漂移纠偏' }
+              { level: 'info', event: 'ipc.invoke', msg: 'get_fan_control_snapshot completed' },
+              { level: 'info', event: 'temp.poll', msg: `Current sensor temperature: CPU=${MOCK_STATE.keyboardBrightness + 25}°C` },
+              { level: 'warn', event: 'tdp.check', msg: 'Power profile drift detected; synchronizing correction' }
             ];
             const chosen = logs[Math.floor(Math.random() * logs.length)];
             handler(chosen);

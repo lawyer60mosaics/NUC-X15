@@ -30,6 +30,7 @@ use commands::{
         force_fan_sentinel_restart, get_current_fan_mode, get_fan_control_snapshot, get_fan_speeds,
         start_fan_control, stop_fan_control, update_fan_policy,
     },
+    process_heat::get_hot_processes,
     tdp::{
         apply_display_scene_profile, apply_system_power_profile, get_display_refresh_status,
         get_rgb, get_rgb_color, get_tdp, lock_cpu_tdp, lock_tdp, set_cpu_tdp,
@@ -43,11 +44,9 @@ use commands::{
 };
 use plug::{
     config::saved_startup_takeover_enabled,
-    diagnostics::{app_log, start_frontend_watchdog},
+    diagnostics::app_log,
     fan::{fan_reset, init_snapshot, start_fan_sentinel},
-    process_sentinel::{
-        acquire_main_instance_lock, maybe_run_external_sentinel_from_args, start_external_sentinel,
-    },
+    process_sentinel::{acquire_main_instance_lock, maybe_run_external_sentinel_from_args},
     setup,
     struct_set::{FanActorSnapshot, FanControlState},
 };
@@ -75,8 +74,6 @@ fn main() {
     if !acquire_main_instance_lock() {
         return;
     }
-    #[cfg(windows)]
-    start_external_sentinel();
     #[cfg(debug_assertions)]
     let devtools = tauri_plugin_devtools::init();
     #[cfg(debug_assertions)]
@@ -161,12 +158,11 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            Some(vec![]),
+            Some(vec!["--silent"]),
         ))
         .manage(fan_control_state)
         .setup(|app| {
             app_log("app", "info", "setup.start", "entering tauri setup");
-            start_frontend_watchdog(app.handle().clone());
             let result = setup::init(app);
             match &result {
                 Ok(()) => app_log("app", "info", "setup.done", "tauri setup completed"),
@@ -209,6 +205,7 @@ fn main() {
             frontend_heartbeat,
             get_diagnostic_log_path,
             get_diagnostic_summary,
+            get_hot_processes,
             apply_vendor_battery,
             apply_vendor_lighting,
             apply_vendor_whisper,

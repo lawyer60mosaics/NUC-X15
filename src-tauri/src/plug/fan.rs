@@ -51,6 +51,9 @@ static FAN_ACTOR_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LAST_SENTINEL_RESTART_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_RUNTIME: RwLock<Option<(FanData, WebviewWindow)>> = RwLock::new(None);
 const INVALID_TEMP_RELEASE_THRESHOLD: u8 = 3;
+// 常用档位仍需保留一条独立的热保护通道，避免低噪曲线把风扇上限压得过低。
+const THERMAL_BOOST_TEMP: i64 = 78;
+const THERMAL_PROTECT_TEMP: i64 = 88;
 const TDP_CACHE_TTL_MS: u64 = 5_000;
 const TDP_COALESCE_WAIT_MS: u64 = 1_500;
 const TDP_LOCK_CHECK_INTERVAL_MS: u64 = 5_000;
@@ -554,7 +557,7 @@ fn apply_fan_curve(
     }
 
     // 过温保护：超过 TEMP_EMERGENCY 立即满转
-    if cpu_out > TEMP_EMERGENCY || gpu_out > TEMP_EMERGENCY {
+    if cpu_out >= TEMP_EMERGENCY || gpu_out >= TEMP_EMERGENCY {
         if state.fan_cache[0] == 100 && state.fan_cache[1] == 100 {
             println!("{}", "⚠️ 过温，风扇已满转，跳过重复写入".red());
         } else {
@@ -667,6 +670,11 @@ fn apply_fan_curve(
     target_left_raw = target_left_raw.clamp(0, cpu_cap);
     target_right_raw = target_right_raw.clamp(0, gpu_cap);
 
+    // NUC 机身和热管余量较小：达到高温区后，保护优先级高于静音档上限。
+    // 78°C 开始逐步抬高最低风速，88°C 至少 100%，避免用户曲线/模式上限导致持续积热。
+    apply_thermal_safety_floor(cpu_use, &mut target_left_raw);
+    apply_thermal_safety_floor(gpu_use, &mut target_right_raw);
+
     target_left_raw = apply_temperature_hysteresis(
         cpu_use,
         target_left_raw,
@@ -750,6 +758,8 @@ fn apply_fan_curve(
 
     if cpu_out - state.ema_cpu.round() as i64 >= TEMP_JUMP_THRESHOLD
         || gpu_out - state.ema_gpu.round() as i64 >= TEMP_JUMP_THRESHOLD
+        || cpu_use >= THERMAL_PROTECT_TEMP
+        || gpu_use >= THERMAL_PROTECT_TEMP
     {
         max_up = FAST_RAMP_UP;
     }
@@ -800,6 +810,15 @@ fn apply_fan_curve(
     state.ema_target_right = ema_target_right_new;
 
     thread::sleep(Duration::from_millis(control_sleep_ms));
+}
+
+fn apply_thermal_safety_floor(temp_now: i64, target: &mut i64) {
+    if temp_now >= THERMAL_PROTECT_TEMP {
+        *target = MAX_FAN_SPEED_PERCENT;
+    } else if temp_now >= THERMAL_BOOST_TEMP {
+        let floor = 60 + (temp_now - THERMAL_BOOST_TEMP) * 3;
+        *target = (*target).max(floor.min(MAX_FAN_SPEED_PERCENT));
+    }
 }
 
 fn effective_min_speed(control: &FanControlPolicy, temp_now: i64) -> i64 {

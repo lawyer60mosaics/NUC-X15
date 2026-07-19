@@ -346,6 +346,8 @@ pub struct FanData {
     pub monitor: MonitoringConfig,
     #[serde(default)]
     pub appearance: AppearanceConfig,
+    #[serde(default)]
+    pub app_settings: serde_json::Value,
 }
 
 fn default_strategy() -> String {

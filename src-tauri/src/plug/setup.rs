@@ -3,7 +3,7 @@ use std::{fs, process, thread, time::Duration};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::plugin::PermissionState;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{App, Manager};
+use tauri::{App, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
@@ -78,6 +78,7 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
 }
 
 pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
+    let silent_start = std::env::args().any(|arg| arg == "--silent");
     #[cfg(debug_assertions)] // only include this code on debug builds
     {
         if let Some(window) = app.get_webview_window("main") {
@@ -85,15 +86,17 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             window.close_devtools();
         }
     }
-    let handle = app.handle().clone();
-    tauri::async_runtime::spawn(async move {
-        match update(handle).await {
-            Ok(_) => {}
-            Err(e) => {
-                println!("update error: {:#?}", e);
+    if !silent_start {
+        let handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            match update(handle).await {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("update error: {:#?}", e);
+                }
             }
-        }
-    });
+        });
+    }
     let config_dir = get_config_dir();
     fs::create_dir_all(&config_dir)?;
     app_log(
@@ -109,6 +112,18 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let _ = window.set_min_size(Some(tauri::LogicalSize::new(680.0, 480.0)));
     if window.maximize().is_err() {
         let _ = window.center();
+    }
+    if silent_start {
+        let _ = window.hide();
+        app_log(
+            "startup",
+            "info",
+            "window.silent",
+            "started in tray without showing the main window",
+        );
+    } else {
+        let _ = window.show();
+        let _ = window.set_focus();
     }
     if let Some(startup_window) = app.get_webview_window("main") {
         if let Err(e) = start_saved_startup_takeover(startup_window) {
@@ -161,6 +176,16 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
                 if let Some(webview_window) = app.get_webview_window("tdp") {
                     let _ = webview_window.show();
                     let _ = webview_window.set_focus();
+                } else if let Ok(webview_window) = WebviewWindowBuilder::new(
+                    app,
+                    "tdp",
+                    WebviewUrl::App("tdp.html".into()),
+                )
+                .title("NUCtool Debug")
+                .inner_size(800.0, 700.0)
+                .build()
+                {
+                    let _ = webview_window.set_focus();
                 }
             }
             _ => (),
@@ -183,15 +208,5 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             }
         })
         .build(app)?;
-    #[cfg(windows)]
-    if let Err(e) = window_vibrancy::apply_acrylic(&window, Some((18, 18, 18, 125))) {
-        println!("apply_acrylic main failed: {:?}", e);
-    }
-    #[cfg(windows)]
-    if let Some(tdp_window) = app.get_webview_window("tdp") {
-        if let Err(e) = window_vibrancy::apply_acrylic(tdp_window, Some((18, 18, 18, 125))) {
-            println!("apply_acrylic tdp failed: {:?}", e);
-        }
-    }
     Ok(())
 }

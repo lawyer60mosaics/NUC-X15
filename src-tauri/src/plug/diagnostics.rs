@@ -19,12 +19,15 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_LOG_DETAIL_CHARS: usize = 8_000;
 const DIAGNOSTIC_SUMMARY_LINE_LIMIT: usize = 900;
 const DIAGNOSTIC_RECENT_ISSUE_LIMIT: usize = 16;
+#[allow(dead_code)]
 const FRONTEND_HEARTBEAT_STALE_MS: u64 = 25_000;
+#[allow(dead_code)]
 const FRONTEND_RELOAD_COOLDOWN_MS: u64 = 45_000;
 
 static LOG_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static FRONTEND_HEARTBEAT_MS: AtomicU64 = AtomicU64::new(0);
 static FRONTEND_HEARTBEAT_SEQ: AtomicU64 = AtomicU64::new(0);
+#[allow(dead_code)]
 static FRONTEND_LAST_RELOAD_MS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -216,15 +219,40 @@ fn summarize_diagnostic_lines(
         if lower.contains("[frontend_watchdog] reload") {
             watchdog_reload_count += 1;
         }
-        let is_watchdog_event = lower.contains("[frontend_watchdog]")
-            || lower.contains("[fan_sentinel]")
-            || lower.contains("[external_sentinel]")
-            || lower.contains("watchdog.")
-            || lower.contains("actor_hung.flagged");
+        let is_watchdog_event = parsed
+            .as_ref()
+            .map(|entry| {
+                let component = entry.component.as_str();
+                let event = entry.event.as_str();
+                match component {
+                    // Heartbeats are normal liveness telemetry, not watchdog incidents.
+                    "frontend_watchdog" => {
+                        entry.level == "warn"
+                            || entry.level == "error"
+                            || event == "reload"
+                    }
+                    // Startup, healthy clears, and debug confirmation lines are lifecycle
+                    // telemetry. Only warnings/errors represent a sentinel incident.
+                    "fan_sentinel" | "external_sentinel" => {
+                        entry.level == "warn" || entry.level == "error"
+                    }
+                    _ => {
+                        event.starts_with("watchdog.")
+                            || event == "actor_hung.flagged"
+                    }
+                }
+            })
+            .unwrap_or_else(|| {
+                lower.contains("[frontend_watchdog] reload")
+                    || lower.contains("watchdog.resume_gap")
+                    || lower.contains("actor_hung.flagged")
+            });
         if is_watchdog_event {
             watchdog_event_count += 1;
         }
-        if lower.contains("[fan_sentinel]") || lower.contains("[external_sentinel]") {
+        if is_watchdog_event
+            && (lower.contains("[fan_sentinel]") || lower.contains("[external_sentinel]"))
+        {
             sentinel_event_count += 1;
         }
         if lower.contains("tdp_lock.drift") || lower.contains("cpu_tdp_lock.drift") {
@@ -383,6 +411,7 @@ pub fn app_log(component: &str, level: &str, event: &str, details: impl AsRef<st
     }
 }
 
+#[allow(dead_code)]
 pub fn start_frontend_watchdog(app: AppHandle) {
     let boot_ms = now_ms_u64();
     FRONTEND_HEARTBEAT_MS.store(boot_ms, Ordering::SeqCst);
@@ -560,5 +589,35 @@ mod tests {
         assert_eq!(summary.invoke_failure_count, 1);
         assert_eq!(summary.recent_issues.len(), 1);
         assert_eq!(summary.recent_issues[0].event, "invoke.failed");
+    }
+
+    #[test]
+    fn diagnostic_summary_excludes_normal_watchdog_telemetry() {
+        let lines = [
+            r#"1778948332966 [debug] [frontend_watchdog] heartbeat seq=80 visible=true focused=true reason=interval"#,
+            r#"1778948333966 [info] [fan_sentinel] start check_ms=3000 sample_stale_ms=12000 heartbeat_stale_ms=15000"#,
+            r#"1778948334966 [info] [fan_sentinel] sdown.clear previous_reason=sample_stale"#,
+        ];
+
+        let summary = summarize_diagnostic_lines(Path::new("diagnostic.log"), &lines, lines.len());
+
+        assert_eq!(summary.watchdog_event_count, 0);
+        assert_eq!(summary.sentinel_event_count, 0);
+        assert!(summary.recent_watchdog_events.is_empty());
+    }
+
+    #[test]
+    fn diagnostic_summary_keeps_real_watchdog_incidents() {
+        let lines = [
+            r#"1778948332966 [warn] [fan_sentinel] restart.start reason=heartbeat_stale force=false"#,
+            r#"1778948333966 [warn] [frontend_watchdog] reload reason=heartbeat_stale"#,
+        ];
+
+        let summary = summarize_diagnostic_lines(Path::new("diagnostic.log"), &lines, lines.len());
+
+        assert_eq!(summary.watchdog_event_count, 2);
+        assert_eq!(summary.sentinel_event_count, 1);
+        assert_eq!(summary.watchdog_reload_count, 1);
+        assert_eq!(summary.recent_watchdog_events.len(), 2);
     }
 }

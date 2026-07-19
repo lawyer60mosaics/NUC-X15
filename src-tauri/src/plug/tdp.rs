@@ -1076,15 +1076,22 @@ pub async fn lock_cpu_tdp(cpu1: i64, cpu2: i64) -> Result<bool, String> {
 
 #[tauri::command]
 #[cfg(windows)]
-pub async fn apply_system_power_profile(mode: String) -> Result<SystemPowerApplyResult, String> {
+pub async fn apply_system_power_profile(
+    mode: String,
+    preserve_fan_control: Option<bool>,
+) -> Result<SystemPowerApplyResult, String> {
     let normalized = mode.to_ascii_lowercase();
+    let preserve_fan_control = preserve_fan_control.unwrap_or(false);
     let profile = system_power_profile(&normalized)
         .ok_or_else(|| format!("unknown system power profile: {}", mode))?;
     app_log(
         "command",
         "info",
         "apply_system_power_profile.start",
-        format!("mode={}", normalized),
+        format!(
+            "mode={} preserve_fan_control={}",
+            normalized, preserve_fan_control
+        ),
     );
     fan::pause_tdp_lock_reapply(SYSTEM_PROFILE_TDP_LOCK_PAUSE_MS, "system_power_profile");
     let started = std::time::Instant::now();
@@ -1188,11 +1195,19 @@ pub async fn apply_system_power_profile(mode: String) -> Result<SystemPowerApply
             "powercfg.query_energy_preference",
             run_powercfg(&["/query", "SCHEME_CURRENT", "SUB_PROCESSOR", "PERFEPP"]),
         );
-        push_action(
-            &mut actions,
-            "uniwill.apply_profile",
-            apply_uniwill_profile(&normalized),
-        );
+        if preserve_fan_control {
+            push_action(
+                &mut actions,
+                "uniwill.apply_profile",
+                Ok("skipped to preserve active fan control".to_string()),
+            );
+        } else {
+            push_action(
+                &mut actions,
+                "uniwill.apply_profile",
+                apply_uniwill_profile(&normalized),
+            );
+        }
 
         if !profile.refresh_candidates.is_empty() {
             push_action(
@@ -1255,7 +1270,10 @@ pub async fn apply_system_power_profile(mode: String) -> Result<SystemPowerApply
 
 #[tauri::command]
 #[cfg(unix)]
-pub async fn apply_system_power_profile(_mode: String) -> Result<SystemPowerApplyResult, String> {
+pub async fn apply_system_power_profile(
+    _mode: String,
+    _preserve_fan_control: Option<bool>,
+) -> Result<SystemPowerApplyResult, String> {
     Err("System power profiles are currently implemented for Windows only".to_string())
 }
 

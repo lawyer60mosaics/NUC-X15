@@ -26,7 +26,7 @@ export function rgbToHex(r: number, g: number, b: number) {
 
 export function useVendorService(showToast: (msg: string) => void) {
   // 服务运行状态
-  const [serviceStatus, setServiceStatus] = useState<string>('未连接');
+  const [serviceStatus, setServiceStatus] = useState<string>('DISCONNECTED');
   const [serviceConnected, setServiceConnected] = useState(false);
   const [serviceData, setServiceData] = useState<VendorServiceData | null>(null);
 
@@ -46,6 +46,7 @@ export function useVendorService(showToast: (msg: string) => void) {
 
   // 刷新状态
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState('SYNCING VENDOR SERVICE');
 
   // 轮询并同步服务状态
   const refreshStatus = useCallback(async () => {
@@ -53,29 +54,30 @@ export function useVendorService(showToast: (msg: string) => void) {
       const res = await invokeBackend('get_vendor_service_status');
       if (res) {
         setServiceConnected(res.ok);
-        setServiceStatus(res.ok ? '服务运行中' : '不可用');
+        setServiceStatus(res.ok ? 'SERVICE ONLINE' : 'UNAVAILABLE');
         if (res.data) {
           setServiceData(res.data);
         }
       }
     } catch (e: any) {
       setServiceConnected(false);
-      setServiceStatus('通信失败');
+      setServiceStatus('COMMUNICATION ERROR');
     }
   }, []);
 
   // 应用 Whisper（防卡限帧策略）
   const applyWhisper = useCallback(async (mode: string, fpsVal: number) => {
     setBusy(true);
+    setBusyLabel('WRITING WHISPER GAME SILENCE POLICY');
     try {
       const res = await invokeBackend('apply_vendor_whisper', { mode, fps: Number(fpsVal) });
       if (res) {
         setWhisperMode(res.mode || mode);
         setWhisperFps(res.fps || fpsVal);
-        showToast('Whisper 限帧策略已成功同步到底层厂商服务。');
+        showToast('Whisper frame limit policy synced to the vendor service.');
       }
     } catch (e: any) {
-      showToast(`应用 Whisper 失败: ${e.message || e}`);
+      showToast(`Failed to apply Whisper: ${e.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -84,15 +86,16 @@ export function useVendorService(showToast: (msg: string) => void) {
   // 应用电池养护方案
   const applyBattery = useCallback(async (mode: string, levelVal: number) => {
     setBusy(true);
+    setBusyLabel('WRITING BATTERY CARE LIMIT');
     try {
       const res = await invokeBackend('apply_vendor_battery', { mode, level: Number(levelVal) });
       if (res) {
         setBatteryMode(res.mode || mode);
         setBatteryLevel(res.level || levelVal);
-        showToast('电池养护阈值已成功写入 EC 芯片。');
+        showToast('Battery care limit written to the EC controller.');
       }
     } catch (e: any) {
-      showToast(`应用电池限制失败: ${e.message || e}`);
+      showToast(`Failed to apply battery limit: ${e.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -101,6 +104,7 @@ export function useVendorService(showToast: (msg: string) => void) {
   // 应用 RGB 灯效
   const applyLighting = useCallback(async (colorHex: string, kbBright: number, lbBright: number, breathing: boolean) => {
     setBusy(true);
+    setBusyLabel('WRITING KEYBOARD LIGHTING SETTINGS');
     const { r, g, b } = hexToRgb(colorHex);
 
     try {
@@ -110,6 +114,7 @@ export function useVendorService(showToast: (msg: string) => void) {
         b,
         keyboardBrightness: Number(kbBright),
         lightbarBrightness: Number(lbBright),
+        lightbarBreathing: !!breathing,
       });
 
       if (res) {
@@ -117,16 +122,16 @@ export function useVendorService(showToast: (msg: string) => void) {
           const errors = Array.isArray(res.status.errors) && res.status.errors.length > 0
             ? `: ${res.status.errors.join('; ')}`
             : '';
-          throw new Error(`${res.status.detail || '厂商服务未确认灯效写入'}${errors}`);
+          throw new Error(`${res.status.detail || 'Vendor service did not confirm lighting write'}${errors}`);
         }
         setLightingColor(rgbToHex(res.r ?? r, res.g ?? g, res.b ?? b));
         setKeyboardBrightness(res.keyboard_brightness ?? kbBright);
         setLightbarBrightness(res.lightbar_brightness ?? lbBright);
-        setLightbarBreathing(breathing);
-        showToast('RGB 灯效策略已全量写入外设芯片。');
+        setLightbarBreathing(res.lightbar_breathing ?? breathing);
+        showToast('RGB lighting policy written to the peripheral controller.');
       }
     } catch (e: any) {
-      showToast(`应用 RGB 灯效失败: ${e.message || e}`);
+      showToast(`Failed to apply RGB lighting: ${e.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -134,9 +139,12 @@ export function useVendorService(showToast: (msg: string) => void) {
 
   // 从本地 Preferences 缓存或默认值加载
   useEffect(() => {
-    refreshStatus();
-    // 后台轮询服务连接是否健康
-    const timer = setInterval(refreshStatus, 15000);
+    const refreshVisibleStatus = () => {
+      if (!document.hidden) refreshStatus();
+    };
+    refreshVisibleStatus();
+    const timer = setInterval(refreshVisibleStatus, 60000);
+    document.addEventListener('visibilitychange', refreshVisibleStatus);
     
     // 初始化读取本地 Preferences
     const cachedLighting = localStorage.getItem('nuctool.lightingPreference');
@@ -151,7 +159,10 @@ export function useVendorService(showToast: (msg: string) => void) {
       }
     }
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshVisibleStatus);
+    };
   }, [refreshStatus]);
 
   // 缓存 Preferences
@@ -182,6 +193,7 @@ export function useVendorService(showToast: (msg: string) => void) {
     lightbarBreathing,
     setLightbarBreathing,
     busy,
+    busyLabel,
     applyWhisper,
     applyBattery,
     applyLighting,

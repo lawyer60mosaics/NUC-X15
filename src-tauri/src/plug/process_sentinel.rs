@@ -120,6 +120,7 @@ pub fn maybe_run_external_sentinel_from_args() -> bool {
     true
 }
 
+#[allow(dead_code)]
 pub fn start_external_sentinel() {
     let exe = match env::current_exe() {
         Ok(exe) => exe,

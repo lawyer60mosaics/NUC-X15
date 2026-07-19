@@ -6,6 +6,7 @@ pub mod fan_curve;
 pub mod keyboard_rgb;
 pub mod mode_profiles;
 pub mod models;
+pub mod process_heat;
 pub mod process_sentinel;
 pub mod ramp;
 pub mod setup;

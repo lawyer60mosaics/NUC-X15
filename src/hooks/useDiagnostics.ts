@@ -4,19 +4,34 @@ import { invokeBackend, useTauriEvent } from './useTauriApi';
 export interface DiagnosticSummary {
   path: string;
   size_bytes: number;
-  modified_ms: number;
+  modified_ms: number | null;
   total_lines: number;
   scanned_lines: number;
   health: string;
   summary: string;
   warning_count: number;
   error_count: number;
+  invoke_failure_count: number;
+  invoke_timeout_count: number;
+  ui_drift_count: number;
   watchdog_reload_count: number;
+  watchdog_event_count: number;
+  sentinel_event_count: number;
+  tdp_drift_count: number;
+  tdp_reapply_failed_count: number;
   actor_hung_count: number;
   vendor_failure_count: number;
   hardware_busy_count: number;
-  recent_watchdog_events: string[];
-  recent_issues: string[];
+  recent_watchdog_events: DiagnosticIssue[];
+  recent_issues: DiagnosticIssue[];
+}
+
+export interface DiagnosticIssue {
+  timestamp_ms: number;
+  level: string;
+  component: string;
+  event: string;
+  message: string;
 }
 
 export interface LogEntry {
@@ -39,6 +54,8 @@ export function useDiagnostics(
 
   // 运行日志队列
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState('RUNNING DIAGNOSTICS');
 
   // 前端心跳包序号
   const heartbeatSeq = useRef(0);
@@ -51,19 +68,23 @@ export function useDiagnostics(
         setSummary(res);
       }
     } catch (e: any) {
-      console.warn('获取诊断汇总失败:', e);
+      console.warn('Failed to read diagnostic summary:', e);
     }
   }, []);
 
   // 手动测试哨兵卡死自愈
   const runSentinelTest = useCallback(async () => {
+    setBusy(true);
+    setBusyLabel('TRIGGERING RECOVERY WATCHDOG TEST');
     try {
       const fanData = getFanPayload?.();
       const res = await invokeBackend('force_fan_sentinel_restart', { fanData });
-      showToast(res || '自愈哨兵测试命令已下发。');
+      showToast(res || 'Recovery watchdog test command dispatched.');
       await refreshSummary();
     } catch (e: any) {
-      showToast(`自愈测试触发失败: ${e.message || e}`);
+      showToast(`Failed to trigger recovery test: ${e.message || e}`);
+    } finally {
+      setBusy(false);
     }
   }, [getFanPayload, refreshSummary, showToast]);
 
@@ -121,22 +142,29 @@ export function useDiagnostics(
     }, 3000);
 
     // 默认推入两条初始化日志
-    pushLog('info', 'console', 'NUCtool 前端 React 渲染引擎加载成功。');
-    pushLog('info', 'console', '与自愈 WMI 子进程心跳监听成功对接。');
+    pushLog('info', 'console', 'NUCtool React frontend loaded successfully.');
+    pushLog('info', 'console', 'Recovery WMI subprocess heartbeat connected.');
 
     refreshSummary();
     // 定时轮询诊断文件摘要
-    const diagTimer = setInterval(refreshSummary, 30000);
+    const refreshVisibleSummary = () => {
+      if (!document.hidden) refreshSummary();
+    };
+    const diagTimer = setInterval(refreshVisibleSummary, 60000);
+    document.addEventListener('visibilitychange', refreshVisibleSummary);
 
     return () => {
       clearInterval(heartbeatTimer);
       clearInterval(diagTimer);
+      document.removeEventListener('visibilitychange', refreshVisibleSummary);
     };
   }, [getFanRunning, refreshSummary, pushLog]);
 
   return {
     summary,
     logs,
+    busy,
+    busyLabel,
     pushLog,
     refreshSummary,
     runSentinelTest,

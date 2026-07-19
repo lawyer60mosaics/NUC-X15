@@ -15,16 +15,15 @@ interface ColorCirclePickerProps {
   busy: boolean;
 }
 
-// 苹果 iOS 预设高饱和度霓虹色彩
 const PRESET_COLORS = [
-  { name: '炙热红', hex: '#ff453a', glow: 'rgba(255, 69, 58, 0.4)' },
-  { name: '熔岩橘', hex: '#ff9f0a', glow: 'rgba(255, 159, 10, 0.4)' },
-  { name: '极光绿', hex: '#30d158', glow: 'rgba(48, 209, 88, 0.4)' },
-  { name: '冰川蓝', hex: '#64d2ff', glow: 'rgba(100, 210, 255, 0.4)' },
-  { name: '幽邃蓝', hex: '#0a84ff', glow: 'rgba(10, 132, 255, 0.4)' },
-  { name: '魅惑紫', hex: '#bf5af2', glow: 'rgba(191, 90, 242, 0.4)' },
-  { name: '纯净白', hex: '#ffffff', glow: 'rgba(255, 255, 255, 0.3)' },
-  { name: '暗影金', hex: '#ffd60a', glow: 'rgba(255, 214, 10, 0.4)' },
+  { name: 'HOT RED', hex: '#ff453a', glow: 'rgba(255, 69, 58, 0.4)' },
+  { name: 'LAVA ORANGE', hex: '#ff9f0a', glow: 'rgba(255, 159, 10, 0.4)' },
+  { name: 'AURORA GREEN', hex: '#30d158', glow: 'rgba(48, 209, 88, 0.4)' },
+  { name: 'GLACIER BLUE', hex: '#64d2ff', glow: 'rgba(100, 210, 255, 0.4)' },
+  { name: 'DEEP BLUE', hex: '#0a84ff', glow: 'rgba(10, 132, 255, 0.4)' },
+  { name: 'MAGIC PURPLE', hex: '#bf5af2', glow: 'rgba(191, 90, 242, 0.4)' },
+  { name: 'PURE WHITE', hex: '#ffffff', glow: 'rgba(255, 255, 255, 0.3)' },
+  { name: 'SHADOW GOLD', hex: '#ffd60a', glow: 'rgba(255, 214, 10, 0.4)' },
 ];
 
 export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
@@ -173,7 +172,7 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
     };
     const nextHex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 
-    setPickerPos({ x: targetX / scaleX * rect.width / scaleX, y: targetY / scaleY * rect.height / scaleY });
+    setPickerPos({ x: targetX / scaleX, y: targetY / scaleY });
     onChangeColor(nextHex);
   };
 
@@ -194,21 +193,24 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
   }, []);
 
   return (
-    <GlassCard className="color-picker-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: color, boxShadow: `0 0 12px ${color}` }}></span>
-          外设 RGB 灯效星云舱
-        </h3>
-        <div style={{ fontSize: '11px', opacity: 0.9, background: 'var(--surface-muted)', padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--border-muted)', fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
+    <GlassCard className="color-picker-card lighting-console">
+      <div className="control-panel-header lighting-panel-header">
+        <div className="control-panel-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1" /><circle cx="12" cy="12" r="4" /></svg>
+        </div>
+        <div>
+          <h3 className="card-title">KEYBOARD & CHASSIS LIGHTING</h3>
+          <p className="card-subtitle">Choose a color and tune both lighting zones</p>
+        </div>
+        <div className="lighting-hex-readout">
+          <i style={{ background: color, boxShadow: `0 0 16px ${color}` }} />
           {color.toUpperCase()}
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '24px', alignItems: 'center' }}>
-        {/* 左侧：液态霓虹 Canvas 色盘 */}
+      <div className="lighting-workbench">
         <div 
-          style={{ position: 'relative', width: '150px', height: '150px', cursor: 'crosshair', userSelect: 'none' }}
+          className="lighting-color-wheel"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
         >
@@ -216,66 +218,42 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
             ref={canvasRef} 
             width={300} 
             height={300} 
-            style={{ width: '100%', height: '100%', borderRadius: '50%' }}
+            className="lighting-color-canvas"
           />
-          {/* 取色锚点 */}
           <div 
+            className="lighting-color-anchor"
             style={{
-              position: 'absolute',
               left: `${pickerPos.x}px`,
               top: `${pickerPos.y}px`,
-              width: '18px',
-              height: '18px',
-              borderRadius: '50%',
               background: color,
-              border: '2px solid #ffffff',
-              boxShadow: '0 3px 10px rgba(0,0,0,0.5)',
-              transform: 'translate(-50%, -50%)',
-              pointerEvents: 'none',
-              transition: isDragging ? 'none' : 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
           />
+          <span className="lighting-wheel-label">COLOR MATRIX</span>
         </div>
 
-        {/* 右侧：预设快选泡泡 & 精细亮度滑块 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: 600 }}>
-              iOS 26 炫光霓虹预设
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+        <div className="lighting-tuning">
+          <div className="lighting-control-block">
+            <div className="lighting-block-label">COLOR PRESETS</div>
+            <div className="lighting-preset-grid">
               {PRESET_COLORS.map((preset) => {
                 const isSelected = color.toLowerCase() === preset.hex.toLowerCase();
                 return (
                   <button
                     key={preset.hex}
+                    type="button"
                     onClick={() => onChangeColor(preset.hex)}
                     title={preset.name}
-                    style={{
-                      background: 'var(--surface-muted)',
-                      border: isSelected ? '1.5px solid var(--border-strong)' : '1px solid var(--border-muted)',
-                      borderRadius: '10px',
-                      padding: '6px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      transition: 'all 0.2s ease',
-                      boxShadow: isSelected ? `0 0 14px ${preset.glow}` : 'none',
-                    }}
+                    className={`lighting-preset ${isSelected ? 'is-active' : ''}`}
+                    aria-pressed={isSelected}
                   >
                     <span 
+                      className="lighting-preset-dot"
                       style={{
-                        display: 'block',
-                        width: '12px',
-                        height: '12px',
-                        borderRadius: '50%',
                         background: preset.hex,
                         boxShadow: `0 0 8px ${preset.glow}`
                       }}
                     />
-                    <span style={{ fontSize: '11px', color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: isSelected ? 700 : 500 }}>
+                    <span>
                       {preset.name.slice(2)}
                     </span>
                   </button>
@@ -284,38 +262,24 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
             </div>
           </div>
 
-          {/* HTML 原生取色器微调 */}
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>调色盘微调:</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--surface-sunken)', border: '1px solid var(--border-muted)', borderRadius: '10px', padding: '4px 10px', flex: 1 }}>
+          <div className="lighting-native-picker">
+            <span>PRECISION PICKER</span>
+            <label>
               <input
                 type="color"
                 value={color}
                 onChange={(e) => onChangeColor(e.target.value)}
-                style={{
-                  border: 'none',
-                  background: 'none',
-                  width: '26px',
-                  height: '24px',
-                  padding: 0,
-                  cursor: 'pointer',
-                  borderRadius: '4px',
-                }}
+                aria-label="Choose an exact lighting color"
               />
-              <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
-                手动拾色精密对准
-              </span>
-            </div>
+              <span>OPEN SYSTEM COLOR PICKER</span>
+            </label>
           </div>
         </div>
       </div>
 
-      <hr style={{ border: 'none', borderBottom: '1px solid var(--divider-color)', margin: '4px 0' }} />
-
-      {/* 滑块调节区域 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '20px' }}>
+      <div className="lighting-slider-grid">
         <LiquidSlider
-          label="键盘背光亮度"
+          label="KEYBOARD BACKLIGHT"
           min={0}
           max={100}
           value={keyboardBrightness}
@@ -323,7 +287,7 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
           onChange={onChangeKeyboardBrightness}
         />
         <LiquidSlider
-          label="底盘灯带亮度"
+          label="CHASSIS LIGHTBAR"
           min={0}
           max={100}
           value={lightbarBrightness}
@@ -332,69 +296,38 @@ export const ColorCirclePicker: React.FC<ColorCirclePickerProps> = ({
         />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-        {/* 底盘灯呼吸效果开关 */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
-          <div 
+      <div className="lighting-footer">
+        <label className="lighting-breathing-toggle">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={lightbarBreathing}
+            aria-label="Toggle chassis lightbar breathing"
+            className={lightbarBreathing ? 'is-on' : ''}
             onClick={() => onChangeLightbarBreathing(!lightbarBreathing)}
-            style={{
-              width: '40px',
-              height: '22px',
-              borderRadius: '99px',
-              background: lightbarBreathing ? 'var(--accent-color)' : 'var(--control-bg)',
-              border: '1px solid var(--control-border)',
-              position: 'relative',
-              transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
           >
-            <div 
-              style={{
-                width: '16px',
-                height: '16px',
-                borderRadius: '50%',
-                background: '#ffffff',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-                position: 'absolute',
-                top: '2px',
-                left: lightbarBreathing ? '20px' : '2px',
-                transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-              }}
-            />
-          </div>
-          <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>底盘灯带流光呼吸效果</span>
+            <i />
+          </button>
+          <span><strong>LIGHTBAR BREATHING</strong><small>{lightbarBreathing ? 'EFFECT ENABLED' : 'STEADY BRIGHTNESS'}</small></span>
         </label>
 
-        {/* 写入 EC 硬件按钮 */}
         <button
+          type="button"
           onClick={onApply}
           disabled={busy}
-          style={{
-            background: busy ? 'var(--control-disabled-bg)' : 'var(--accent-color)',
-            border: 'none',
-            borderRadius: '12px',
-            padding: '10px 20px',
-            color: busy ? 'var(--text-secondary)' : 'var(--text-inverse)',
-            fontWeight: 800,
-            fontSize: '13px',
-            cursor: busy ? 'not-allowed' : 'pointer',
-            boxShadow: busy ? 'none' : '0 6px 20px var(--accent-color-glow)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-          }}
+          className="lighting-apply-button"
         >
           {busy ? (
             <>
-              <div className="spinner" style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.2)', borderTop: '2px solid var(--text-secondary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-              写入外设芯片...
+              <span className="lighting-button-loader" />
+              WRITING TO PERIPHERAL CONTROLLER...
             </>
           ) : (
             <>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
-              应用 RGB 灯效策略
+              APPLY LIGHTING SETTINGS
             </>
           )}
         </button>
