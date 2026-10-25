@@ -28,3 +28,8 @@ Cargo.lock
 *-preview.png
 aurora-ui-*.png
 i18n-*.png
+
+# Locally assembled official NSS binaries; keep vendor files out of source control.
+artifacts/nss-ec/
+releases/IntelNUCSoftwareStudio-EC*/
+releases/IntelNUCSoftwareStudio-EC*.zip

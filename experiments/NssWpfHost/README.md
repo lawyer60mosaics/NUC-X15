@@ -1,5 +1,10 @@
 # Intel NUC Software Studio WPF host proof of concept
 
+For the deliverable that runs **inside the official Intel program**, use
+[`integrations/IntelNucStudio.Ec`](../../integrations/IntelNucStudio.Ec/README.md)
+and `scripts/package-intel-nss-ec.ps1`. This experiment is retained for its shared
+C# EC implementation; its standalone EXE is not the official integration package.
+
 This isolated WPF prototype has two parts: metadata-only inspection of the original display-mode module, and an in-process EC fan module using the same `ROOT\\WMI / AcpiTest_MULong.GetSetULong` path as the existing Rust EC implementation. It does not modify or repackage the installed Intel application, and it does not bundle vendor binaries in this repository.
 
 ## Build and launch

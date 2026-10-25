@@ -16,7 +16,7 @@ namespace NssWpfHost.Ec
     }
 
     /// <summary>In-process WPF feature module for the existing Uniwill EC fan protocol.</summary>
-    public sealed class EcFanModule : IDisposable
+    public sealed class EcFanModule : IEcFanController
     {
         private const long EcCommunicationFailure = 0xFEFEFEFE;
         private const int MinimumFanPercent = 20;
@@ -27,12 +27,13 @@ namespace NssWpfHost.Ec
         private readonly SemaphoreSlim _hardwareGate = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _curveLifecycleGate = new SemaphoreSlim(1, 1);
         private string _model;
-        private bool _manualRequested;
+        private volatile bool _manualRequested;
         private CancellationTokenSource _curveCancellation;
         private Task _curveTask = Task.CompletedTask;
         private volatile bool _curveRunning;
 
         public bool IsCurveControlRunning => _curveRunning;
+        public bool IsManualControlRequested => _manualRequested;
 
         public async Task<EcFanSnapshot> ReadSnapshotAsync()
         {

@@ -51,14 +51,16 @@ namespace NssWpfHost.Ec
                 var options = new ConnectionOptions
                 {
                     Impersonation = ImpersonationLevel.Impersonate,
-                    Authentication = AuthenticationLevel.Call
+                    Authentication = AuthenticationLevel.Call,
+                    Timeout = TimeSpan.FromSeconds(5)
                 };
                 var scope = new ManagementScope(@"\\.\ROOT\WMI", options);
                 scope.Connect();
                 using (var searcher = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT * FROM AcpiTest_MULong")))
-                using (var instances = searcher.Get())
                 {
-                    _ecInstance = instances.Cast<ManagementObject>().FirstOrDefault();
+                    searcher.Options.Timeout = TimeSpan.FromSeconds(5);
+                    using (var instances = searcher.Get())
+                        _ecInstance = instances.Cast<ManagementObject>().FirstOrDefault();
                 }
                 if (_ecInstance == null)
                     throw new InvalidOperationException("ROOT\\WMI 中没有找到 AcpiTest_MULong EC 接口。");
@@ -81,7 +83,8 @@ namespace NssWpfHost.Ec
             using (var input = _ecInstance.GetMethodParameters("GetSetULong"))
             {
                 input["Data"] = data.ToString(CultureInfo.InvariantCulture);
-                using (var output = _ecInstance.InvokeMethod("GetSetULong", input, null))
+                using (var output = _ecInstance.InvokeMethod("GetSetULong", input,
+                    new InvokeMethodOptions { Timeout = TimeSpan.FromSeconds(5) }))
                 {
                     if (output == null || output["Return"] == null)
                         throw new InvalidOperationException("EC WMI 没有返回 Return 值。");
