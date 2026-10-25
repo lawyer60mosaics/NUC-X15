@@ -36,6 +36,7 @@ namespace IntelNucStudio.Ec.Tests
         private static FakeController _controller;
         private static bool _exitViaTray;
         private static string _officialDirectory;
+        private static string _snapshotDirectory;
 
         [STAThread]
         private static int Main(string[] args)
@@ -43,6 +44,8 @@ namespace IntelNucStudio.Ec.Tests
             _exitViaTray = Array.IndexOf(args, "--exit-via-tray") >= 0;
             var directoryIndex = Array.IndexOf(args, "--official-dir");
             if (directoryIndex >= 0 && directoryIndex + 1 < args.Length) _officialDirectory = args[directoryIndex + 1];
+            var snapshotIndex = Array.IndexOf(args, "--snapshot-dir");
+            if (snapshotIndex >= 0 && snapshotIndex + 1 < args.Length) _snapshotDirectory = args[snapshotIndex + 1];
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.Startup += async (sender, args) =>
             {
@@ -72,7 +75,8 @@ namespace IntelNucStudio.Ec.Tests
             Grid.SetColumn(keyboard, 1);
             cards.Children.Add(keyboard);
             var monitorContent = new StackPanel();
-            monitorContent.Children.Add(new Image { Width = 36, Height = 36 });
+            monitorContent.Children.Add(new Image { Width = 36, Height = 36,
+                Source = new DrawingImage(new GeometryDrawing(Brushes.DeepSkyBlue, null, new RectangleGeometry(new Rect(0, 0, 36, 36)))) });
             monitorContent.Children.Add(new TextBlock { Text = "系统监视器", FontSize = 12 });
             var monitor = new SystemMonitorMgr.Views.SystemMonitorButtonView
             {
@@ -81,7 +85,7 @@ namespace IntelNucStudio.Ec.Tests
             };
             var homeLayout = new Grid();
             homeLayout.RowDefinitions.Add(new RowDefinition());
-            homeLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(80) });
+            homeLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             homeLayout.Children.Add(cards);
             Grid.SetRow(monitor, 1);
             homeLayout.Children.Add(monitor);
@@ -92,7 +96,7 @@ namespace IntelNucStudio.Ec.Tests
             root.Children.Add(officialRegion);
             root.Children.Add(close);
             var flags = new ShellFlags();
-            var window = new Window { Content = root, DataContext = flags, Width = 1000, Height = 700,
+            var window = new TestOfficialWindow(close) { Content = root, DataContext = flags, Width = 1000, Height = 700,
                 Left = -15000, Top = -15000, Opacity = 0, ShowInTaskbar = false };
             app.MainWindow = window;
             window.Show();
@@ -111,6 +115,23 @@ namespace IntelNucStudio.Ec.Tests
                 && entryLabel.FontSize == 12 && entry.Margin.Left > monitor.ActualWidth,
                 "EC shortcut must match the icon/caption monitor style beside the original shortcut");
             Pass("EC shortcut matches the system monitor icon/caption style without a frame");
+            Assert(((SolidColorBrush)entryLabel.Foreground).Color == Color.FromRgb(0, 175, 229),
+                "EC caption must keep the official cyan rather than inherit an unreadable default foreground");
+            await VerifyResponsiveEntry(window, root, monitor, entry, entryIcon, entryLabel);
+            CloseWithMouse(close);
+            await Pump();
+            Assert(!window.IsVisible && !window.Dispatcher.HasShutdownStarted,
+                "Titlebar X must hide the window instead of exiting");
+            window.Show();
+            await Pump();
+            Assert(entry.Visibility == Visibility.Visible, "Restoring from tray must restore the home shortcut");
+            Click(close);
+            await Pump();
+            Assert(!window.IsVisible && window.OriginalCloseCalls == 0 && !window.Dispatcher.HasShutdownStarted,
+                "Accessibility Click must hide and bypass the original package-dependent callback");
+            window.Show();
+            await Pump();
+            Pass("Titlebar X hides the idle window and permits restoring it");
 
             officialRegion.Content = new FeatureMgr.Views.DetailView();
             await Pump();
@@ -139,6 +160,43 @@ namespace IntelNucStudio.Ec.Tests
             }
             Assert(_controller.StartCalls == 3 && _controller.ReleaseCalls == 0, "Preset switching must not release EC");
             Pass("Three preset buttons switch curves without releasing EC");
+            var releaseCallsBeforeHide = _controller.ReleaseCalls;
+            CloseWithMouse(close);
+            await Pump();
+            Assert(!window.IsVisible && !window.Dispatcher.HasShutdownStarted && _controller.IsCurveControlRunning
+                && _controller.ReleaseCalls == releaseCallsBeforeHide && !_controller.Disposed,
+                "Titlebar X must leave the active EC controller running in the background");
+            window.Show();
+            await Pump();
+            Assert(ReferenceEquals(page, Find<EcControlPage>(root, value => true)) && !performance.IsEnabled && keyboard.IsEnabled,
+                "Restoring the window must retain the EC page and performance-only lock");
+            foreach (var key in new[] { Key.Return, Key.Space })
+            {
+                close.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, key)
+                    { RoutedEvent = UIElement.PreviewKeyDownEvent });
+                await Pump();
+                Assert(!window.IsVisible && _controller.ReleaseCalls == releaseCallsBeforeHide,
+                    "Keyboard activation of titlebar X must hide without releasing EC");
+                window.Show();
+                await Pump();
+            }
+            var altF4 = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, Key.F4);
+            typeof(KeyEventArgs).GetMethod("MarkSystem", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .Invoke(altF4, null);
+            altF4.RoutedEvent = UIElement.PreviewKeyDownEvent;
+            window.RaiseEvent(altF4);
+            await Pump();
+            Assert(!window.IsVisible && _controller.IsCurveControlRunning && _controller.ReleaseCalls == releaseCallsBeforeHide,
+                "Alt+F4 must hide without releasing EC");
+            window.Show();
+            await Pump();
+            window.Close();
+            await Pump();
+            Assert(!window.IsVisible && _controller.IsCurveControlRunning && !window.Dispatcher.HasShutdownStarted,
+                "System close must hide without exiting or stopping EC");
+            window.Show();
+            await Pump();
+            Pass("Mouse, keyboard, Alt+F4 and system close preserve EC while hidden and after restoring");
             _controller.FailPreset = EcFanPreset.Quiet;
             Click(Find<Button>(page, value => Equals(value.Tag, "Quiet")));
             await Pump();
@@ -201,28 +259,101 @@ namespace IntelNucStudio.Ec.Tests
             Click(Find<Button>(page, value => Equals(value.Content, "重新读取")));
             await Pump();
             _controller.FailRelease = true;
+            CloseWithMouse(close);
+            await Pump();
+            Assert(!window.IsVisible, "Failed tray-exit scenario must begin with a hidden window");
             using (var failedExitTray = new TestOfficialTray())
             using (var failedExitBridge = new OfficialTrayBridge(failedExitTray, failedExitTray.Icon, integration.ExitApplicationAsync))
                 failedExitTray.ExitItem.PerformClick();
             await Pump();
-            Assert(!window.Dispatcher.HasShutdownStarted && _controller.IsManualControlRequested
+            Assert(window.IsVisible && !window.Dispatcher.HasShutdownStarted && _controller.IsManualControlRequested
                 && !performance.IsEnabled && keyboard.IsEnabled, "Failed tray exit must retain EC and the performance-only lock");
             _controller.FailRelease = false;
             Pass("Failed EC handoff during tray exit leaves the application running for retry");
             _result = 0;
             if (_exitViaTray)
             {
+                CloseWithMouse(close);
+                await Pump();
+                Assert(!window.IsVisible && _controller.IsManualControlRequested,
+                    "Tray exit must be tested while the EC controller is running in the background");
                 using (var tray = new TestOfficialTray())
                 using (var bridge = new OfficialTrayBridge(tray, tray.Icon, integration.ExitApplicationAsync))
                     tray.ExitItem.PerformClick();
             }
-            else close.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-                { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent });
-            Assert(!_controller.IsManualControlRequested && _controller.Disposed, "Close button must hand off EC before shutdown");
-            Pass((_exitViaTray ? "Official tray exit" : "Official close button") + " hands off EC before process exit");
+            else Click(Find<Button>(root, value => Equals(value.Content, "退出程序")));
+            Assert(!_controller.IsManualControlRequested && _controller.Disposed, "Explicit exit must hand off EC before shutdown");
+            Pass((_exitViaTray ? "Official tray exit" : "Explicit exit button") + " hands off EC before process exit");
         }
 
         private static async Task Pump() { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); }
+        private static void CloseWithMouse(Button close) => close.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent });
+
+        private static async Task VerifyResponsiveEntry(Window window, Grid root,
+            SystemMonitorMgr.Views.SystemMonitorButtonView monitor, Button entry, Image icon, TextBlock label)
+        {
+            var nativeLabel = Find<TextBlock>(monitor, value => value.Text == "系统监视器");
+            var nativeIcon = Find<Image>(monitor, value => true);
+            // The official shortcut can have a narrow allocated button inside a
+            // scaled home view. Its width is not a safe width for our longer caption.
+            foreach (var width in new[] { 640d, 1000d, 1600d })
+            foreach (var scale in new[] { 0.75, 1d, 1.25, 1.5, 2d })
+            {
+                window.Width = width;
+                monitor.Width = 64;
+                nativeLabel.FontSize = 14;
+                monitor.LayoutTransform = new ScaleTransform(scale, scale);
+                await Pump();
+                root.UpdateLayout();
+                await Pump();
+                var text = new FormattedText(label.Text, label.Language.GetEquivalentCulture(), label.FlowDirection,
+                    new Typeface(label.FontFamily, label.FontStyle, label.FontWeight, label.FontStretch),
+                    label.FontSize, label.Foreground, null, TextFormattingMode.Display, VisualTreeHelper.GetDpi(label).PixelsPerDip);
+                var labelBounds = label.TransformToAncestor(entry).TransformBounds(new Rect(label.RenderSize));
+                Assert(label.ActualWidth + 1 >= text.WidthIncludingTrailingWhitespace
+                    && labelBounds.Left >= -1 && labelBounds.Right <= entry.ActualWidth + 1
+                    && labelBounds.Top >= -1 && labelBounds.Bottom <= entry.ActualHeight + 1,
+                    "EC caption clipped at window " + width + ", scale " + scale
+                    + "; text=" + text.WidthIncludingTrailingWhitespace + "; label=" + labelBounds + "; entry=" + entry.RenderSize);
+                var entryBounds = entry.TransformToAncestor(root).TransformBounds(new Rect(entry.RenderSize));
+                var nativeIconBounds = nativeIcon.TransformToAncestor(root).TransformBounds(new Rect(nativeIcon.RenderSize));
+                var iconBounds = icon.TransformToAncestor(root).TransformBounds(new Rect(icon.RenderSize));
+                Assert(entryBounds.Right <= root.ActualWidth + 1 && entryBounds.Bottom <= root.ActualHeight + 1,
+                    "Shortcut escaped the viewport at " + width + "/" + scale + ": " + entryBounds + "; root=" + root.RenderSize);
+                var alignedTop = Math.Max(0, Math.Min(nativeIconBounds.Top, root.ActualHeight - entry.Height));
+                Assert(label.FontSize >= 12 && Math.Abs(iconBounds.Top - alignedTop) < 1,
+                    "Shortcut should retain readable text and align with the monitor icon at " + width + "/" + scale
+                    + "; font=" + label.FontSize + "; iconTop=" + iconBounds.Top + "; expected=" + alignedTop
+                    + "; margin=" + entry.Margin + "; entry=" + entryBounds + "; nativeIcon=" + nativeIconBounds);
+                if (_snapshotDirectory != null && width == 640)
+                {
+                    System.IO.Directory.CreateDirectory(_snapshotDirectory);
+                    var dpi = VisualTreeHelper.GetDpi(entry);
+                    var visual = new DrawingVisual();
+                    using (var context = visual.RenderOpen())
+                    {
+                        var area = new Rect(0, 0, entry.ActualWidth, entry.ActualHeight);
+                        context.DrawRectangle(new SolidColorBrush(Color.FromRgb(36, 59, 75)), null, area);
+                        context.DrawRectangle(new VisualBrush(entry), null, area);
+                    }
+                    var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                        (int)Math.Ceiling(entry.ActualWidth * dpi.DpiScaleX), (int)Math.Ceiling(entry.ActualHeight * dpi.DpiScaleY),
+                        dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+                    bitmap.Render(visual);
+                    var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                    using (var stream = System.IO.File.Create(System.IO.Path.Combine(_snapshotDirectory, "ec-entry-" + (int)(scale * 100) + ".png")))
+                        encoder.Save(stream);
+                }
+            }
+            window.Width = 1000;
+            monitor.Width = 100;
+            monitor.LayoutTransform = Transform.Identity;
+            nativeLabel.FontSize = 12;
+            await Pump();
+            Pass("EC caption stays readable and unclipped across 15 window/scale combinations");
+        }
         private static void Click(Button button) { button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
         private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
         private static void Pass(string message) { _passed++; Console.WriteLine("PASS " + message); }
@@ -244,6 +375,17 @@ namespace IntelNucStudio.Ec.Tests
     }
 
     public sealed class ShellFlags { public bool ShowEula { get; set; } public bool SettingsVisible { get; set; } }
+
+    internal sealed class TestOfficialWindow : Window
+    {
+        internal int OriginalCloseCalls;
+        internal TestOfficialWindow(Button close) { close.Click += CloseButton_Click; }
+        private void CloseButton_Click(object sender, RoutedEventArgs args)
+        {
+            OriginalCloseCalls++;
+            throw new System.Runtime.InteropServices.COMException("No package identity", unchecked((int)0x80073D54));
+        }
+    }
 
     internal sealed class FakeController : IEcFanController
     {

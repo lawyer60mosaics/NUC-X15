@@ -15,8 +15,8 @@ only the official performance summary/detail is disabled and covered by a mask w
 configuration remain usable. Returning home retains EC and the performance mask;
 stopping EC hands back to firmware before unlocking performance. Failed handoff
 retains the lock. Fixed speed requests recheck temperature protection every second. The
-original close glyph and Alt+F4 hand off before exiting instead of only hiding
-the window. This first version does not provide an out-of-process crash
+original close glyph and Alt+F4 hide to tray while EC continues running;
+only explicit Exit commands hand off before exiting. This version does not provide an out-of-process crash
 watchdog; forced termination cannot execute exit cleanup.
 
 Version 0.1.2 adds Quiet / Balanced / Performance EC fan presets using the existing
@@ -24,6 +24,13 @@ repository's 35–85°C CPU/GPU curves. Selecting a preset starts it; selecting 
 while running atomically replaces the profile without handing off EC ownership.
 Ramp rates and thermal overrides remain active, and these presets do not alter
 the official vendor CPU/GPU performance settings.
+
+Version 0.1.4 sizes the home EC shortcut from its own caption instead of the
+official monitor button's fixed allocation. It follows the native icon scale,
+keeps text at least 12 DIP, and preserves the full caption above the window edge.
+The cyan caption stays independent of inherited default foregrounds.
+The WPF harness covers 15 window-width/home-scale combinations and hide/restore
+with EC active. Titlebar X and Alt+F4 hide to tray; explicit Exit first releases EC.
 
 Version 0.1.3 replaces the official tray `Exit_Click` delegate because it reads
 `ApplicationData.Current` without a package-identity fallback before shutdown.
@@ -51,10 +58,10 @@ manifest. Optional development startup diagnostics are enabled only when
 Verification: REA identified the actual App, MainWindow, ProfilesView and official
 close handler. Runtime diagnostics confirmed the EC DLL loaded in the original
 `NucSoftwareStudio.exe` and its MainWindow; the original five modules and service
-telemetry became available after the WCF fix. The test executable covers 22 shortcut-style, curve,
+telemetry became available after the WCF fix. The test executable covers 24 shortcut-style, curve,
 production-loop hot-swap, thermal, input validation, WPF navigation, interlock,
 failure-recovery, partial-mask and tray scenarios with simulated EC boundaries.
-An optional original-artifact fixture binds and reproduces the actual shipped
+An optional 25th original-artifact fixture binds and reproduces the actual shipped
 `TrayApp.Exit_Click` before verifying its replacement:
 
 ```powershell

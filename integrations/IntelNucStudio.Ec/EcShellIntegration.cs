@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -49,8 +50,13 @@ namespace IntelNucStudio.Ec
             IntegrationDiagnostics.Write("Official content before integration: " + DescribeTree(officialContent));
 
             _entryIcon = new Image { Source = CreateEcIcon(), Width = 36, Height = 36, Margin = new Thickness(0, 0, 0, 4) };
-            _entryCaption = new TextBlock { Text = "EC 风扇控制", FontSize = 12, Foreground = Brush("#00AFE5"), HorizontalAlignment = HorizontalAlignment.Center };
-            var entryContent = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            _entryCaption = new TextBlock
+            {
+                Text = "EC 风扇控制", FontSize = 12, Foreground = Brush("#00AFE5"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.None
+            };
+            var entryContent = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
             entryContent.Children.Add(_entryIcon);
             entryContent.Children.Add(_entryCaption);
             _entry = new Button
@@ -66,10 +72,12 @@ namespace IntelNucStudio.Ec
                 BorderBrush = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 Cursor = Cursors.Hand,
+                UseLayoutRounding = true, SnapsToDevicePixels = true,
                 Template = CreateModuleEntryTemplate(),
                 ToolTip = "打开 EC 直连风扇控制；不会自动改变厂商性能档位",
                 Visibility = Visibility.Collapsed
             };
+            TextOptions.SetTextFormattingMode(_entry, TextFormattingMode.Display);
             _entry.Click += (sender, args) => OpenPage();
             SpanShell(_entry);
             Panel.SetZIndex(_entry, 100);
@@ -90,30 +98,41 @@ namespace IntelNucStudio.Ec
             var closeButton = FindCloseButton(officialContent);
             if (closeButton != null)
             {
-                closeButton.PreviewMouseLeftButtonDown += async (sender, args) =>
+                // Also cover Click raised by keyboard/accessibility automation.
+                // The original callback hides, then accesses MSIX-only settings.
+                var method = window.GetType().GetMethod("CloseButton_Click", BindingFlags.Instance | BindingFlags.NonPublic);
+                var originalClose = method == null ? null : Delegate.CreateDelegate(typeof(RoutedEventHandler), window, method, false) as RoutedEventHandler;
+                if (originalClose != null) closeButton.Click -= originalClose;
+                closeButton.Click += (sender, args) => { args.Handled = true; HideToTray(); };
+                closeButton.PreviewMouseLeftButtonDown += (sender, args) =>
                 {
                     args.Handled = true;
-                    await ExitApplicationAsync();
+                    HideToTray();
                 };
-                closeButton.ToolTip = "交还 EC 自动控制并退出程序";
+                closeButton.PreviewKeyDown += (sender, args) =>
+                {
+                    if (args.Key != Key.Return && args.Key != Key.Space) return;
+                    args.Handled = true;
+                    HideToTray();
+                };
+                closeButton.ToolTip = "隐藏到托盘，程序继续运行";
             }
-            window.PreviewKeyDown += async (sender, args) =>
+            window.PreviewKeyDown += (sender, args) =>
             {
                 if (args.Key == Key.System && args.SystemKey == Key.F4)
                 {
                     args.Handled = true;
-                    await ExitApplicationAsync();
+                    HideToTray();
                 }
             };
-            // The official OnClosing override intentionally hides/cancels and does
-            // not raise Window.Closing. Observe visibility for tray handoff instead.
-            window.IsVisibleChanged += async (sender, args) =>
+            // The official OnClosing override already hides/cancels. Retain the
+            // same behavior for any shell that raises Closing (including tests).
+            // Hiding must not deactivate the EC page or hand control back.
+            window.Closing += (sender, args) =>
             {
-                if (!(bool)args.NewValue && _page != null)
-                {
-                    await ClosePageAsync();
-                    if (_page != null) _window.Show();
-                }
+                if (_closingWindow) return;
+                args.Cancel = true;
+                HideToTray();
             };
             application.Exit += OnApplicationExit;
             application.SessionEnding += (sender, args) => ReleaseBeforeExit();
@@ -204,7 +223,7 @@ namespace IntelNucStudio.Ec
         {
             var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
             presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
-            presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Top);
             var surface = new FrameworkElementFactory(typeof(Border));
             surface.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             surface.AppendChild(presenter);
@@ -234,26 +253,45 @@ namespace IntelNucStudio.Ec
             var button = FindElement<Button>(_monitorView, value => true);
             if (button == null || !_root.IsAncestorOf(button) || button.ActualWidth <= 0 || button.ActualHeight <= 0) return;
             var bounds = button.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
-            _entry.VerticalAlignment = VerticalAlignment.Top;
-            _entry.Width = Math.Round(bounds.Width, 3);
-            _entry.Height = Math.Round(bounds.Height, 3);
-            _entry.Margin = new Thickness(Math.Round(bounds.Right + 20, 3), Math.Round(bounds.Top, 3), 0, 0);
+            var top = bounds.Top;
+            var gap = 4d;
             var icon = FindElement<Image>(button, value => value.ActualWidth > 0 && value.ActualHeight > 0);
+            var iconBounds = bounds;
             if (icon != null)
             {
-                var iconBounds = icon.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, icon.ActualWidth, icon.ActualHeight));
+                iconBounds = icon.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, icon.ActualWidth, icon.ActualHeight));
                 _entryIcon.Width = Math.Round(iconBounds.Width, 3);
                 _entryIcon.Height = Math.Round(iconBounds.Height, 3);
+                top = iconBounds.Top;
             }
             var caption = FindElement<TextBlock>(button, value => !string.IsNullOrWhiteSpace(value.Text));
             if (caption != null)
             {
                 var scale = caption.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, 1, 1)).Height;
-                _entryCaption.FontSize = caption.FontSize * scale;
+                _entryCaption.FontSize = Math.Max(12, caption.FontSize * scale);
                 _entryCaption.FontFamily = caption.FontFamily;
                 _entryCaption.FontWeight = caption.FontWeight;
-                _entryCaption.Foreground = caption.Foreground;
+                if (icon != null)
+                {
+                    var captionBounds = caption.TransformToAncestor(_root).TransformBounds(new Rect(caption.RenderSize));
+                    gap = Math.Max(4, captionBounds.Top - iconBounds.Bottom);
+                }
             }
+            _entryIcon.Margin = new Thickness(0, 0, 0, gap);
+            // The official button's allocated width may be narrower than its own
+            // caption. Measure our longer caption independently of that allocation;
+            // copying the fixed width clips both ends under the original Viewbox.
+            var text = new FormattedText(_entryCaption.Text, _entryCaption.Language.GetEquivalentCulture(),
+                _entryCaption.FlowDirection, new Typeface(_entryCaption.FontFamily, _entryCaption.FontStyle,
+                    _entryCaption.FontWeight, _entryCaption.FontStretch), _entryCaption.FontSize,
+                _entryCaption.Foreground, null, TextFormattingMode.Display, VisualTreeHelper.GetDpi(_entryCaption).PixelsPerDip);
+            _entry.VerticalAlignment = VerticalAlignment.Top;
+            _entry.Width = Math.Ceiling(Math.Max(bounds.Width, Math.Max(_entryIcon.Width, text.WidthIncludingTrailingWhitespace) + 16));
+            _entry.Height = Math.Ceiling(_entryIcon.Height + gap + text.Height + 4);
+            // Keep the complete caption above the window edge when a smaller
+            // home scale leaves less footer space than the minimum readable text.
+            top = Math.Max(0, Math.Min(top, _root.ActualHeight - _entry.Height));
+            _entry.Margin = new Thickness(Math.Round(bounds.Right + Math.Max(12, _entryIcon.Width * 0.5), 3), Math.Round(top, 3), 0, 0);
         }
 
         private static T FindElement<T>(DependencyObject node, Predicate<T> matches) where T : DependencyObject
@@ -442,10 +480,23 @@ namespace IntelNucStudio.Ec
             try
             {
                 await ClosePageAsync();
-                if (_page != null) { _closingWindow = false; return; }
+                if (_page != null)
+                {
+                    _closingWindow = false;
+                    OpenPage();
+                    _window.Show();
+                    _window.Activate();
+                    return;
+                }
                 _application.Shutdown();
             }
             catch (Exception error) { _closingWindow = false; IntegrationDiagnostics.Write("Close cleanup failed: " + error); }
+        }
+
+        private void HideToTray()
+        {
+            if (_closingWindow) return;
+            _window.Hide();
         }
 
         private void OnApplicationExit(object sender, ExitEventArgs args)
