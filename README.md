@@ -1,13 +1,13 @@
 # NUCtool
 
-NUCtool 是面向 Intel NUC X15/X17 及兼容 Uniwill 平台的风扇、功耗、屏幕与外设控制工具。前端使用 React + Tauri v2，后端使用 Rust 直接对接 Windows WMI / Linux sysfs，并带有诊断、看门狗和独立进程哨兵，尽量把“界面卡住”和“风扇控制失效”拆开处理。
+NUCtool 是面向 Intel NUC X15/X17 及兼容 Uniwill 平台的风扇、功耗、屏幕与外设控制工具。当前支持映射包括 LAPKC71E/LAPKC71F 和 LAPAC71H；未知机型会保持安全拒绝接管。桌面应用使用 Vue 3、Element Plus 和 Tauri v2，硬件逻辑由 Rust 对接 Windows WMI / Linux sysfs 与 Uniwill 厂商服务，并带有诊断、看门狗和独立进程哨兵。
 
 ## 当前能力
 
 ### 风扇控制
 
-- 支持静音、办公、游戏、性能、基准五种场景。
-- 支持 CPU/GPU 双曲线拖拽调节。
+- 支持静音、平衡、性能三种风扇场景。
+- 后端保留 CPU/GPU 独立温度曲线；当前界面提供恒速输出上限，曲线编辑界面仍在完善。
 - 支持恒速接管模式。
 - 支持配置保存、加载和启动后自动接管。
 - 支持异常温度过滤、转速斜坡、滞后控制和过温保护。
@@ -51,7 +51,7 @@ C:\Users\<用户名>\AppData\Roaming\com.nuc.x15.fan.cyear.app\diagnostic.log
 
 ### 界面
 
-- 前端为 React + TypeScript。
+- 前端为 Vue 3 + TypeScript + Element Plus；部分旧 React 文件仍留在源码树中，不参与当前应用入口构建。
 - 使用 MiSans 本地字体，字体文件位于 `public/fonts/MiSans-Normal.ttf`。
 - 支持白天、夜晚、自动三种日夜场景，并保存到配置文件。
 - 当前 UI 采用卡片网格布局，白天模式为米白背景、黑色文字和细边框；夜晚模式提高了文本对比度。
@@ -59,26 +59,30 @@ C:\Users\<用户名>\AppData\Roaming\com.nuc.x15.fan.cyear.app\diagnostic.log
 
 ## 技术栈
 
-- 前端：React 18、TypeScript、Vite、Chart.js
+- 前端：Vue 3、TypeScript、Element Plus、Vite、Chart.js
 - 桌面壳：Tauri v2
 - 后端：Rust
 - Windows 硬件接口：WMI、PowerShell、Uniwill vendor service
 - Linux 硬件接口：sysfs
-- 打包：Tauri NSIS
+- 打包：Tauri Windows NSIS/MSI、Linux AppImage/deb（由 CI 生成）
 
 ## 目录说明
 
 ```text
-src/                  React 前端
-src/hooks/            前端状态与 Tauri IPC Hook
-src/components/       页面组件
-src/styles/theme.css  全局主题、日夜模式和字体
+src/                  Vue 3 应用与尚存的旧前端源码
+src/vue/              Vue 页面、硬件状态与交互逻辑
+src/hooks/            旧前端状态与 Tauri IPC Hook
+src/components/       页面组件和共享控件
+src/styles/           全局主题与控制面板样式
 src-tauri/src/        Rust 后端
 src-tauri/src/plug/   风扇、TDP、诊断、哨兵、厂商服务实现
 src-tauri/icons/      主程序和哨兵图标资源
 public/fonts/         前端字体资源
 dist/                 Vite 构建产物
 ```
+
+Intel NUC Software Studio 功能对照与当前实现状态见
+[`docs/studio-feature-parity.md`](docs/studio-feature-parity.md)。部分厂商功能仍受设备能力和硬件验证范围限制；对照表会标明接入与验收状态。
 
 ## 配置与日志
 
@@ -96,6 +100,10 @@ diagnostic.log               诊断日志
 monitor_log.csv              监控采样导出源
 external_sentinel.state.json 外部哨兵状态
 ```
+
+从原作者 Beta.3 升级时，程序会尝试读取旧目录
+`com.cyear.nuctool/fan_config.json`，迁移到当前目录，并保留一份
+`fan_config.beta3.json` 备份。
 
 `fan_config.json` 中和启动相关的关键字段：
 

@@ -3,28 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/app-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>NUCtool | 极致硬件超频温控空间</title>
-    
-    <!-- 引入高精数字字体 (Outfit) & 高端科技正文字体 (Inter) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;700;800;900&display=swap" rel="stylesheet" />
-    
-    <!-- 全局防拖动及右键优化，原生感觉 -->
-    <style>
-      body {
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        user-select: none;
-        -webkit-user-select: none;
-        background: #040812;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1724" />
+    <title>NUCtool · Software Studio</title>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="app"></div>
+    <script type="module" src="/src/vue/main.ts"></script>
   </body>
 </html>

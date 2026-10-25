@@ -1,6 +1,6 @@
 [package]
 name = "NUCtool"
-version = "1.0.3"
+version = "26.9.19"
 description = "NUC Fan Control"
 authors = ["cyear"]
 edition = "2021"
@@ -24,12 +24,15 @@ tauri-plugin-devtools = "2.0.0"
 nix = "0.29.0"
 
 [target.'cfg(windows)'.dependencies]
+libloading = "0.8.6"
+sha2 = "0.10.8"
+hex = "0.4.3"
 notify-rust = "4.11.3"
 powershell_script = "1.1.0"
 window-vibrancy = "0.5.2"
 # tokio = { version = "1.40.0", features = ["full"] }
 anyhow = "1.0.89"
-windows = { version = "0.58.0", features = ["Win32", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System", "Win32_System_Wmi", "Win32_System_Com", "Win32_Security", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_HumanInterfaceDevice", "Win32_Storage_FileSystem", "Win32_System_IO"] }
+windows = { version = "0.58.0", features = ["Win32", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System", "Win32_System_Power", "Win32_System_Wmi", "Win32_System_Com", "Win32_Security", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_HumanInterfaceDevice", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 wmi = "0.15.0"
 [features]
 custom-protocol = ["tauri/custom-protocol"]

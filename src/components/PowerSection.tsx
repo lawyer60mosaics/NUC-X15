@@ -1,457 +1,108 @@
 import React from 'react';
-import GlassCard from './GlassCard';
-import LiquidSlider from './LiquidSlider';
-import ColorCirclePicker from './ColorCirclePicker';
+import { scenarioLabel, tr } from '../i18n';
+import FanControlSection from './FanControlSection';
+import PerformanceSection from './PerformanceSection';
+import { PowerSectionProps, SensorValue } from './powerTypes';
 
-import { CPU_POWER_PROFILES, DISPLAY_SCENE_PROFILES } from '../hooks/usePower';
+const NavFanIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="2.2" />
+    <path d="M12 9.8c-1.2-3.4.1-6 2.2-6.4 2-.3 3.2 1.5 2.2 3.4C15.6 8.3 13.9 9.3 12 9.8ZM14 13c3.5-.7 5.8.9 5.8 3 0 2-2 2.9-3.7 1.6-1.4-1-2-2.9-2.1-4.6ZM10.2 13.1c-2.3 2.8-5.2 3.1-6.4 1.4-1.1-1.7.1-3.4 2.3-3.2 1.8.1 3.2.8 4.1 1.8Z" />
+  </svg>
+);
 
-interface PowerSectionProps {
-  // usePower hook variables
-  powerMode: string;
-  applyPowerMode: (mode: string) => void;
-  cpuPl1: number;
-  setCpuPl1: (val: number) => void;
-  cpuPl2: number;
-  setCpuPl2: (val: number) => void;
-  gpuPl1: number;
-  setGpuPl1: (val: number) => void;
-  gpuPl2: number;
-  setGpuPl2: (val: number) => void;
-  applyTdpLimits: (pl1: number, pl2: number, gpl1: number, gpl2: number) => void;
-  currentHz: number;
-  supportedHz: number[];
-  displayDetail: string;
-  displaySceneMode: string;
-  displaySceneDetail: string;
-  applyDisplayHz: (hz: number) => void;
-  applyDisplayScene: (mode: string) => void;
-  powerBusy: boolean;
+const ModeIcon = ({ index }: { index: number }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d={index === 0 ? 'M18 15.5A7 7 0 0 1 8.5 6 7.5 7.5 0 1 0 18 15.5Z' : index === 1 ? 'M4 5h16v12H4zM8 21h8' : 'M13 2 4 14h7l-1 8 9-12h-7l1-8Z'} />
+  </svg>
+);
 
-  // useVendorService hook variables
-  whisperMode: string;
-  setWhisperMode: (mode: string) => void;
-  whisperFps: number;
-  setWhisperFps: (val: number) => void;
-  batteryMode: string;
-  setBatteryMode: (mode: string) => void;
-  batteryLevel: number;
-  setBatteryLevel: (val: number) => void;
-  lightingColor: string;
-  setLightingColor: (color: string) => void;
-  keyboardBrightness: number;
-  setKeyboardBrightness: (val: number) => void;
-  lightbarBrightness: number;
-  setLightbarBrightness: (val: number) => void;
-  lightbarBreathing: boolean;
-  setLightbarBreathing: (val: boolean) => void;
-  vendorBusy: boolean;
-  applyWhisper: (mode: string, fps: number) => void;
-  applyBattery: (mode: string, level: number) => void;
-  applyLighting: (colorHex: string, kbBright: number, lbBright: number, breathing: boolean) => void;
+function temperatureStatus(value: SensorValue, language: 'en' | 'zh') {
+  if (typeof value !== 'number') return tr(language, 'Waiting', '等待数据');
+  if (value >= 85) return tr(language, 'Hot', '高温');
+  if (value >= 70) return tr(language, 'Warm', '偏热');
+  return tr(language, 'Normal', '正常');
 }
 
-export const PowerSection: React.FC<PowerSectionProps> = ({
-  powerMode,
-  applyPowerMode,
-  cpuPl1,
-  setCpuPl1,
-  cpuPl2,
-  setCpuPl2,
-  gpuPl1,
-  setGpuPl1,
-  gpuPl2,
-  setGpuPl2,
-  applyTdpLimits,
-  currentHz,
-  supportedHz,
-  displayDetail,
-  displaySceneMode,
-  displaySceneDetail,
-  applyDisplayHz,
-  applyDisplayScene,
-  powerBusy,
+export const PowerSection: React.FC<PowerSectionProps> = (props) => {
+  const { view, onNavigate, language = 'en' } = props;
+  const isZh = language === 'zh';
+  if (view === 'fan') return <FanControlSection {...props} />;
+  if (view === 'performance') return <PerformanceSection {...props} />;
 
-  whisperMode,
-  setWhisperMode,
-  whisperFps,
-  setWhisperFps,
-  batteryMode,
-  setBatteryMode,
-  batteryLevel,
-  setBatteryLevel,
-  lightingColor,
-  setLightingColor,
-  keyboardBrightness,
-  setKeyboardBrightness,
-  lightbarBrightness,
-  setLightbarBrightness,
-  lightbarBreathing,
-  setLightbarBreathing,
-  vendorBusy,
-  applyWhisper,
-  applyBattery,
-  applyLighting,
-}) => {
-
-  const handleApplyTdp = () => {
-    applyTdpLimits(cpuPl1, cpuPl2, gpuPl1, gpuPl2);
-  };
-
-  const handleApplyWhisper = (mode: string) => {
-    setWhisperMode(mode);
-    applyWhisper(mode, whisperFps);
-  };
-
-  const handleApplyBattery = (mode: string) => {
-    setBatteryMode(mode);
-    applyBattery(mode, batteryLevel);
-  };
-
-  const selectStyle: React.CSSProperties = {
-    width: '100%',
-    minWidth: 0,
-    height: '34px',
-    background: 'var(--control-bg)',
-    color: 'var(--text-primary)',
-    border: '1px solid var(--control-border)',
-    borderRadius: '8px',
-    padding: '0 10px',
-    fontSize: '12px',
-    fontWeight: 700,
-    outline: 'none',
-  };
-
-  const fieldLabelStyle: React.CSSProperties = {
-    display: 'block',
-    marginBottom: '6px',
-    fontSize: '10px',
-    color: 'var(--text-secondary)',
-    fontWeight: 800,
-    letterSpacing: '0.06em',
-  };
-
-  const batteryModes = [
-    { id: 'BestBattery', label: '养护 (60%)', level: 60 },
-    { id: 'Custom', label: '自定义 (80%)', level: 80 },
-    { id: 'AcMode', label: '满电 (100%)', level: 100 },
+  const actualProfile = props.authorReadback?.current_profile_index;
+  const profileText = actualProfile === 1
+    ? tr(language, 'Performance profile', '性能档')
+    : actualProfile === 2
+      ? tr(language, 'Balanced profile', '平衡档')
+      : actualProfile === 3
+        ? tr(language, 'Power-save profile', '省电档')
+        : tr(language, 'Profile unavailable', '性能档暂不可用');
+  const statusSensors = [
+    { label: 'CPU', value: props.cpuTemp },
+    { label: 'GPU', value: props.gpuTemp },
   ];
-
-  const whisperModes = [
-    { id: 'Off', label: '关闭' },
-    { id: 'Quiet', label: '安静' },
-    { id: 'Quieter', label: '更安静' },
-    { id: 'Balanced', label: '平衡' },
-  ];
-
-  const displaySceneCard = (
-    <GlassCard className="module-card" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
-      <div>
-        <h3 className="card-title">
-          屏幕场景调校 (Display Scenes)
-        </h3>
-        <p className="card-subtitle">
-          检测到的活动显卡设备: <strong style={{ color: 'var(--text-primary)' }}>{displayDetail}</strong>
-        </p>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '12px' }}>
-        <label>
-          <span style={fieldLabelStyle}>屏幕场景</span>
-          <select
-            value={displaySceneMode}
-            disabled={powerBusy}
-            onChange={(event) => applyDisplayScene(event.target.value)}
-            style={selectStyle}
-          >
-            {Object.keys(DISPLAY_SCENE_PROFILES).map((key) => {
-              const profile = DISPLAY_SCENE_PROFILES[key];
-              return (
-                <option key={key} value={key}>
-                  {profile.label} · {profile.target} · {profile.subtitle}
-                </option>
-              );
-            })}
-          </select>
-        </label>
-
-        <label>
-          <span style={fieldLabelStyle}>刷新率</span>
-          <select
-            value={String(currentHz)}
-            disabled={powerBusy || supportedHz.length === 0}
-            onChange={(event) => applyDisplayHz(Number(event.target.value))}
-            style={selectStyle}
-          >
-            {supportedHz.map((hz) => (
-              <option key={hz} value={String(hz)}>
-                {hz}Hz
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'var(--surface-sunken)', border: '1px solid var(--border-muted)' }}>
-        <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.06em' }}>
-          当前屏幕场景
-        </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.4 }}>
-          {displaySceneDetail}
-        </div>
-      </div>
-    </GlassCard>
-  );
 
   return (
-    <div className="dashboard-section">
-      {displaySceneCard}
-
-      <div className="dashboard-grid-wide">
-      
-      {/* 左列：系统功耗与显卡 PL 配置 */}
-      <div className="module-stack">
-        
-        {/* 模块：系统功耗预设 */}
-        <GlassCard className="module-card-md" style={{ padding: '18px' }}>
-          <h3 className="card-title">
-            系统性能能效模型 (TDP Profiles)
-          </h3>
-          <p className="card-subtitle" style={{ marginBottom: '16px' }}>
-            选择符合你当前用机习惯的功耗限制，切换将在线修改 ACPI 寄存器组。
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {Object.keys(CPU_POWER_PROFILES).map((key) => {
-              const profile = CPU_POWER_PROFILES[key];
-              const isSelected = powerMode === key;
-              return (
-                <button
-                  key={key}
-                  onClick={() => applyPowerMode(key)}
-                  style={{
-                    background: isSelected ? 'var(--glass-gradient-hover)' : 'var(--surface-muted)',
-                    border: isSelected ? '1px solid var(--border-strong)' : '1px solid var(--border-muted)',
-                    boxShadow: isSelected ? '0 8px 24px rgba(0,0,0,0.25), 0 0 8px var(--accent-color-glow)' : 'none',
-                    borderRadius: '12px',
-                    padding: '12px 16px',
-                    color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 800 }}>{profile.label}</span>
-                    <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', color: isSelected ? 'var(--accent-color)' : 'var(--text-tertiary)', fontWeight: 700 }}>
-                      PL1: {profile.cpu1}W / PL2: {profile.cpu2}W
-                    </span>
-                  </div>
-                  <p style={{ margin: '6px 0 0 0', fontSize: '11px', opacity: isSelected ? 0.9 : 0.6, lineHeight: 1.4 }}>
-                    {profile.desc}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        </GlassCard>
-
-        {/* 模块：手动 TDP 滑条配置 */}
-        <GlassCard className="module-card-md" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <h3 className="card-title">
-              PL 限额自定义调节 (TDP Limits)
-            </h3>
-            <p className="card-subtitle">
-              防 ACPI 竞争保护队列已启动，滑块拖拽松手后执行自适应排队锁定。
-            </p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <LiquidSlider
-                label="CPU 持续功耗 PL1"
-                min={15}
-                max={90}
-                value={cpuPl1}
-                unit="W"
-                onChange={setCpuPl1}
-              />
-              <LiquidSlider
-                label="CPU 睿频功耗 PL2"
-                min={20}
-                max={115}
-                value={cpuPl2}
-                unit="W"
-                onChange={setCpuPl2}
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <LiquidSlider
-                label="GPU 持续功耗 PL1"
-                min={30}
-                max={110}
-                value={gpuPl1}
-                unit="W"
-                onChange={setGpuPl1}
-              />
-              <LiquidSlider
-                label="GPU 睿频功耗 PL2"
-                min={40}
-                max={140}
-                value={gpuPl2}
-                unit="W"
-                onChange={setGpuPl2}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '10px', color: 'var(--text-secondary)', opacity: 0.7 }}>
-              手动微调滑块将退出当前预设模式并标为 “自定义限制”
-            </span>
-            <button
-              onClick={handleApplyTdp}
-              disabled={powerBusy}
-              style={{
-                background: powerBusy ? 'var(--control-disabled-bg)' : 'var(--accent-color)',
-                color: powerBusy ? 'var(--text-secondary)' : 'var(--text-inverse)',
-                border: 'none',
-                borderRadius: '10px',
-                padding: '8px 16px',
-                fontWeight: 800,
-                fontSize: '12px',
-                cursor: powerBusy ? 'not-allowed' : 'pointer',
-                boxShadow: powerBusy ? 'none' : '0 4px 12px var(--accent-color-glow)',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              {powerBusy ? '排队写入中...' : '提交 PL 锁定'}
-            </button>
-          </div>
-        </GlassCard>
-
+    <div className="dashboard-section power-dashboard overview-dashboard">
+      <div className="section-intro">
+        <span className="section-kicker">{isZh ? '设备状态 / SYSTEM STATUS' : 'DEVICE STATUS / SYSTEM STATUS'}</span>
+        <h2>{isZh ? '设备控制台' : 'DEVICE CONTROL CENTER'}</h2>
+        <p>{isZh ? '先看温度与运行状态，再进入风扇或性能控制。每项设置只交给对应的控制通道。' : 'Review temperatures and operating state, then open fan or performance controls. Each setting has one owner.'}</p>
       </div>
 
-      {/* 右列：外设 RGB 灯效与厂商专享养护 */}
-      <div className="module-stack">
-        
-        {/* RGB 灯效星云舱 (Embedded Picker) */}
-        <ColorCirclePicker
-          color={lightingColor}
-          onChangeColor={setLightingColor}
-          keyboardBrightness={keyboardBrightness}
-          onChangeKeyboardBrightness={setKeyboardBrightness}
-          lightbarBrightness={lightbarBrightness}
-          onChangeLightbarBrightness={setLightbarBrightness}
-          lightbarBreathing={lightbarBreathing}
-          onChangeLightbarBreathing={setLightbarBreathing}
-          busy={vendorBusy}
-          onApply={() => applyLighting(lightingColor, keyboardBrightness, lightbarBrightness, lightbarBreathing)}
-        />
+      <section className="status-grid" aria-label={tr(language, 'Current device status', '当前设备状态')}>
+        {statusSensors.map((sensor) => (
+          <article className="status-card" key={sensor.label}>
+            <div className="status-card-heading"><span>{sensor.label}</span><span className="status-badge is-idle">{temperatureStatus(sensor.value, language)}</span></div>
+            <strong>{sensor.value === '--' ? '--' : `${sensor.value}°C`}</strong>
+            <small>{isZh ? '当前温度' : 'CURRENT TEMPERATURE'}</small>
+          </article>
+        ))}
+        <article className="status-card">
+          <div className="status-card-heading"><span>EC / {isZh ? '风扇' : 'FANS'}</span><span className={`status-badge ${props.running ? 'is-normal' : 'is-idle'}`}>{props.running ? (isZh ? '接管中' : 'ACTIVE') : (isZh ? '系统托管' : 'SYSTEM MANAGED')}</span></div>
+          <strong>{props.cpuFanRpm === '--' ? '--' : props.cpuFanRpm.toLocaleString()}<span className="status-unit"> RPM</span></strong>
+          <small>{isZh ? 'CPU 风扇 · ' : 'CPU FAN · '}{props.constantSpeedEnabled ? `${props.constantSpeed}%` : (isZh ? '自动曲线' : 'AUTO CURVE')}</small>
+        </article>
+        <article className="status-card">
+          <div className="status-card-heading"><span>NUCtool.dll / {isZh ? '性能' : 'PROFILE'}</span><span className={`status-badge ${actualProfile === 1 || actualProfile === 2 || actualProfile === 3 ? 'is-normal' : 'is-idle'}`}>{actualProfile === 1 || actualProfile === 2 || actualProfile === 3 ? (isZh ? '已读回' : 'READ BACK') : (isZh ? '未知' : 'UNKNOWN')}</span></div>
+          <strong className="status-profile-value">{profileText}</strong>
+          <small>{isZh ? '厂商性能预设' : 'VENDOR PERFORMANCE PROFILE'}</small>
+        </article>
+      </section>
 
-        {/* 模块：Whisper 游戏静音与电池养护 */}
-        <GlassCard className="module-card-md" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <h3 className="card-title">
-              Uniwill 增值管理 (Whisper & Battery)
-            </h3>
-            <p className="card-subtitle">
-              对主板 EC 的 Whisper 静音算法和锂电池寿命养护阈值提供直读写入。
-            </p>
-          </div>
-
-          {/* Whisper 极静控温 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-muted)', borderRadius: '12px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: '12px', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>Whisper 极静控温</span>
-              <select
-                value={whisperMode}
-                disabled={vendorBusy}
-                onChange={(event) => handleApplyWhisper(event.target.value)}
-                style={selectStyle}
-              >
-                {whisperModes.map((mode) => (
-                  <option key={mode.id} value={mode.id}>
-                    {mode.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', width: '70px' }}>限制游戏帧:</span>
-              <input
-                type="range"
-                min={30}
-                max={120}
-                step={5}
-                value={whisperFps}
-                disabled={whisperMode === 'Off'}
-                onChange={(e) => {
-                  setWhisperFps(Number(e.target.value));
-                  if (whisperMode !== 'Off') {
-                    applyWhisper(whisperMode, Number(e.target.value));
-                  }
-                }}
-                style={{ flex: 1, height: '4px', accentColor: 'var(--accent-color)' }}
-              />
-              <span style={{ fontSize: '11px', color: 'var(--accent-color)', width: '40px', textAlign: 'right', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-                {whisperFps} FPS
-              </span>
-            </div>
-          </div>
-
-          {/* 锂电养护阈值 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', background: 'var(--surface-sunken)', border: '1px solid var(--border-muted)', borderRadius: '12px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '12px', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>锂电充电阈值控制</span>
-              <select
-                value={batteryMode}
-                disabled={vendorBusy}
-                onChange={(event) => {
-                  const selected = batteryModes.find((mode) => mode.id === event.target.value);
-                  if (!selected) return;
-                  setBatteryLevel(selected.level);
-                  handleApplyBattery(selected.id);
-                }}
-                style={selectStyle}
-              >
-                {batteryModes.map((mode) => (
-                  <option key={mode.id} value={mode.id}>
-                    {mode.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', width: '70px' }}>自定义上限:</span>
-              <input
-                type="range"
-                min={50}
-                max={100}
-                step={5}
-                value={batteryLevel}
-                onChange={(e) => {
-                  setBatteryLevel(Number(e.target.value));
-                  applyBattery(batteryMode, Number(e.target.value));
-                }}
-                style={{ flex: 1, height: '4px', accentColor: 'var(--accent-color)' }}
-              />
-              <span style={{ fontSize: '11px', color: 'var(--accent-color)', width: '40px', textAlign: 'right', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-                {batteryLevel}%
-              </span>
-            </div>
-            <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '4px 0 0 0', opacity: 0.6, lineHeight: 1.3 }}>
-              限制充电阈值能极大减缓长期插电使用对锂电池正极材料的晶格损耗与鼓胀几率。
-            </p>
-          </div>
-
-        </GlassCard>
-
+      <div className="overview-section-heading">
+        <div><span>{isZh ? '控制模块' : 'CONTROL MODULES'}</span><h3>{isZh ? '选择要调整的设备部分' : 'CHOOSE WHAT TO ADJUST'}</h3></div>
+        <p>{isZh ? '风扇与设备性能互不联动' : 'Fan control and device performance remain independent'}</p>
       </div>
+      <div className="overview-route-grid">
+        <button className="overview-route-card" type="button" onClick={() => onNavigate('fan')}>
+          <span className="overview-route-icon"><NavFanIcon /></span>
+          <span className="overview-route-copy">
+            <small>EC / {isZh ? '风扇控制' : 'FAN CONTROL'}</small>
+            <strong>{scenarioLabel(language, props.selectedScenario)}</strong>
+            <span>{props.constantSpeedEnabled ? (isZh ? `固定输出 ${props.constantSpeed}%` : `Fixed output ${props.constantSpeed}%`) : (isZh ? '按温度曲线自动调速' : 'Automatic temperature curve')}</span>
+          </span>
+          <span className="overview-route-metrics"><b>{props.cpuFanRpm === '--' ? '--' : props.cpuFanRpm.toLocaleString()}</b> CPU RPM<br /><b>{props.gpuFanRpm === '--' ? '--' : props.gpuFanRpm.toLocaleString()}</b> GPU RPM</span>
+          <i aria-hidden="true">→</i>
+        </button>
+        <button className="overview-route-card" type="button" onClick={() => onNavigate('performance')}>
+          <span className="overview-route-icon"><ModeIcon index={actualProfile === 3 ? 0 : actualProfile === 2 ? 1 : 2} /></span>
+          <span className="overview-route-copy">
+            <small>NUCTOOL.DLL / {isZh ? '性能控制' : 'PERFORMANCE CONTROL'}</small>
+            <strong>{profileText}</strong>
+            <span>{isZh ? '省电 · 平衡 · 性能；基准模式独立开关' : 'Power save · balanced · performance; benchmark is separate'}</span>
+          </span>
+          <span className="overview-route-metrics"><b>{actualProfile ?? '--'}</b><br />PROFILE</span>
+          <i aria-hidden="true">→</i>
+        </button>
       </div>
 
+      <section className="overview-system-panel" aria-label={isZh ? '控制通道状态' : 'Control channel status'}>
+        <div><span>EC / {isZh ? '风扇通道' : 'FAN CHANNEL'}</span><strong>{props.running ? (isZh ? '由 NUCtool 接管' : 'NUCtool active') : (isZh ? '系统托管' : 'System managed')}</strong></div>
+        <div><span>NUCtool.dll / {isZh ? '设备性能' : 'DEVICE PERFORMANCE'}</span><strong>{props.authorBridgeAvailable ? (isZh ? 'DLL 文件已校验' : 'DLL file verified') : (isZh ? 'DLL 文件不可用' : 'DLL file unavailable')}</strong></div>
+        <div><span>WINDOWS / {isZh ? '电源方案' : 'POWER SCHEME'}</span><strong>{props.systemPowerParameters?.scheme_alias || (isZh ? '尚未读回' : 'Not read back')}</strong></div>
+      </section>
     </div>
   );
 };

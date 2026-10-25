@@ -64,12 +64,12 @@ fn led_color() {
 // ── 纯逻辑测试（无需硬件，可直接 cargo test） ──────────────────────────────
 
 #[cfg(all(test, windows))]
-use crate::plug::struct_set::{ec_read_payload, ec_write_payload};
+use crate::plug::struct_set::{combine_ec_bytes, ec_read_payload, ec_write_payload};
 #[cfg(test)]
 use crate::plug::{
     config::{default_fan_data, normalize_fan_data},
     fan_curve::{find_speed_for_temp, sanitize_curve, speed_handle},
-    ramp::ramp_speed,
+    ramp::{ramp_speed, ramp_speed_internal},
     struct_set::{FanControlMode, FanData, FanPoint},
 };
 
@@ -185,10 +185,10 @@ fn test_full_speed_cache_check() {
 /// 问题11：fan_set 的 Windows/Linux 映射边界
 #[test]
 fn test_fan_set_mapping_bounds() {
-    assert_eq!((100i64 * 2).clamp(0, 200), 200);
-    assert_eq!((0i64 * 2).clamp(0, 200), 0);
-    assert_eq!((110i64 * 2).clamp(0, 200), 200); // 越界被夹到最大值
-                                                 // Linux 100% → 255
+    for (input, expected) in [(100i64, 200i64), (0, 0), (110, 200)] {
+        assert_eq!((input * 2).clamp(0, 200), expected);
+    }
+    // Linux 100% → 255
     let lv = ((2.55 * 100f64) as i64).clamp(0, 255);
     assert_eq!(if lv >= 254 { 255 } else { lv }, 255);
     // Linux 99% → 252，不触发强制拉满
@@ -203,6 +203,10 @@ fn test_ramp_speed_first_start() {
     assert_eq!(ramp_speed(0, 60), 60);
     // cache=0 首次启动，目标 10%（低于 MIN_FAN_SPEED=20）→ 应被抬到 20%
     assert_eq!(ramp_speed(0, 10), 20);
+    // 曲线给出 0 但禁用了 zero-RPM 时，仍必须遵循最低风速。
+    assert_eq!(ramp_speed_internal(0, 0, 10, 10, 20), 20);
+    // 只有调用方明确传入 min_speed=0（已启用零转速）才允许停转。
+    assert_eq!(ramp_speed_internal(0, 0, 10, 10, 0), 0);
 }
 
 /// 新问题：ramp_speed 正常运行时步进不超过 FAN_RAMP_STEP=10
@@ -214,6 +218,8 @@ fn test_ramp_speed_step_limit() {
     assert_eq!(ramp_speed(50, 20), 40);
     // cache=25，目标 10%（低于 MIN_FAN_SPEED）→ 降到 20（MIN 下界）
     assert_eq!(ramp_speed(25, 10), 20);
+    assert_eq!(ramp_speed_internal(50, 0, 10, 10, 20), 40);
+    assert_eq!(ramp_speed_internal(50, 0, 10, 10, 0), 0);
 }
 
 /// 新问题：WMI 格式字符串字符数验证（_set_fan 和 set_tdp 的地址格式）
@@ -230,6 +236,15 @@ fn test_wmi_format_string_length() {
         let s = format!("0x0000000000{:02X}0783", v);
         assert_eq!(s.len(), 18, "v={} TDP格式字符串长度异常: {}", v, s);
     }
+}
+
+#[test]
+#[cfg(windows)]
+fn test_fan_rpm_byte_combination_masks_both_bytes() {
+    assert_eq!(combine_ec_bytes(0x12, 0x34), 0x1234);
+    assert_eq!(combine_ec_bytes(0x112, 0x134), 0x1234);
+    assert_eq!(combine_ec_bytes(-1, 0x34), -1);
+    assert_eq!(combine_ec_bytes(0x12, -1), -1);
 }
 
 #[test]
@@ -252,7 +267,8 @@ fn test_ec_tdp_payload_format() {
 #[test]
 fn test_fan_speeds_filter() {
     // 有效范围内的值应原样保留
-    assert!(1i64 <= 50 && 50 <= 105); // 50°C 正常
+    let sample_temp = 50i64;
+    assert!((1i64..=105).contains(&sample_temp)); // 50°C 正常
     assert!((0i64..=7000).contains(&3500)); // 3500 RPM 正常
 
     // 边界值验证
@@ -282,6 +298,7 @@ fn test_normalize_fan_data_clamps_values() {
             temperature: 999,
             speed: -20,
         }],
+        power_curves: None,
         control: crate::plug::struct_set::FanControlPolicy {
             strategy: "invalid".to_string(),
             preset: "invalid".to_string(),
@@ -320,6 +337,7 @@ fn test_normalize_fan_data_clamps_values() {
             log_enabled: true,
         },
         appearance: Default::default(),
+        app_settings: Default::default(),
     };
 
     let n = normalize_fan_data(bad);
@@ -338,7 +356,7 @@ fn test_normalize_fan_data_clamps_values() {
 }
 
 #[test]
-fn test_normalize_fan_data_accepts_benchmark_preset() {
+fn test_normalize_fan_data_keeps_legacy_benchmark_out_of_ec_mode() {
     let fan_data = FanData {
         control: crate::plug::struct_set::FanControlPolicy {
             preset: "benchmark".to_string(),
@@ -349,12 +367,24 @@ fn test_normalize_fan_data_accepts_benchmark_preset() {
 
     let normalized = normalize_fan_data(fan_data);
 
-    assert_eq!(normalized.control.mode, FanControlMode::Benchmark);
-    assert_eq!(normalized.control.preset, "benchmark");
-    assert_eq!(normalized.control.ramp_up_step, 12);
-    assert_eq!(normalized.control.ramp_down_step, 12);
-    assert_eq!(normalized.control.cpu_hysteresis_bandwidth, 1);
-    assert_eq!(normalized.control.gpu_hysteresis_bandwidth, 1);
-    assert_eq!(normalized.control.cpu_fan_max_percent, 100);
-    assert_eq!(normalized.control.gpu_fan_max_percent, 100);
+    assert_eq!(normalized.control.mode, FanControlMode::Custom);
+    assert_eq!(normalized.control.preset, "custom");
+    assert_ne!(normalized.control.cpu_fan_max_percent, 100);
+    assert_ne!(normalized.control.gpu_fan_max_percent, 100);
+}
+
+#[test]
+fn test_legacy_benchmark_mode_is_normalized_before_ec_control() {
+    let fan_data = FanData {
+        control: crate::plug::struct_set::FanControlPolicy {
+            mode: FanControlMode::Benchmark,
+            preset: "benchmark".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let normalized = normalize_fan_data(fan_data);
+    assert_eq!(normalized.control.mode, FanControlMode::Custom);
+    assert_eq!(normalized.control.preset, "custom");
 }

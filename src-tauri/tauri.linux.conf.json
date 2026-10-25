@@ -1,4 +1,7 @@
 {
+  "bundle": {
+    "targets": ["appimage", "deb"]
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [
@@ -8,24 +11,6 @@
         "width": 930,
         "height": 580,
         "visible": true,
-        "transparent": false
-      },
-      {
-        "label": "splashscreen",
-        "url": "/splashscreen.html",
-        "title": "NUCtool Splashscreen",
-        "width": 800,
-        "height": 500,
-        "visible": false,
-        "transparent": false
-      },
-      {
-        "label": "tdp",
-        "url": "/tdp.html",
-        "title": "NUCtool Debug",
-        "width": 800,
-        "height": 500,
-        "visible": false,
         "transparent": false
       }
     ],

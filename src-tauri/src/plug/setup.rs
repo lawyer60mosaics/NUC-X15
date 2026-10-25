@@ -9,10 +9,26 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::plug::{
-    config::get_config_dir,
+    config::{get_config_dir, saved_startup_run_mode},
     diagnostics::app_log,
     fan::{fan_reset, start_saved_startup_takeover},
+    process_sentinel::start_main_instance_activation_listener,
 };
+
+fn resolve_silent_start<I, S>(args: I, configured_mode: &str) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let args: Vec<String> = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_string())
+        .collect();
+    if args.iter().any(|arg| arg == "--silent") {
+        return true;
+    }
+    args.iter().any(|arg| arg == "--autostart") && configured_mode != "full"
+}
 
 async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
     let up: Update;
@@ -78,6 +94,17 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
 }
 
 pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
+    let configured_startup_mode = saved_startup_run_mode();
+    let silent_start = resolve_silent_start(std::env::args(), &configured_startup_mode);
+    app_log(
+        "startup",
+        "info",
+        "mode.resolved",
+        format!(
+            "configured_mode={} silent_start={}",
+            configured_startup_mode, silent_start
+        ),
+    );
     #[cfg(debug_assertions)] // only include this code on debug builds
     {
         if let Some(window) = app.get_webview_window("main") {
@@ -85,15 +112,17 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             window.close_devtools();
         }
     }
-    let handle = app.handle().clone();
-    tauri::async_runtime::spawn(async move {
-        match update(handle).await {
-            Ok(_) => {}
-            Err(e) => {
-                println!("update error: {:#?}", e);
+    if !silent_start {
+        let handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            match update(handle).await {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("update error: {:#?}", e);
+                }
             }
-        }
-    });
+        });
+    }
     let config_dir = get_config_dir();
     fs::create_dir_all(&config_dir)?;
     app_log(
@@ -105,10 +134,23 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     let Some(window) = app.get_webview_window("main") else {
         return Err("main webview window not found".into());
     };
+    start_main_instance_activation_listener(app.handle().clone());
     let _ = window.set_size(tauri::LogicalSize::new(1440.0, 860.0));
     let _ = window.set_min_size(Some(tauri::LogicalSize::new(680.0, 480.0)));
     if window.maximize().is_err() {
         let _ = window.center();
+    }
+    if silent_start {
+        let _ = window.hide();
+        app_log(
+            "startup",
+            "info",
+            "window.silent",
+            "started in tray without showing the main window",
+        );
+    } else {
+        let _ = window.show();
+        let _ = window.set_focus();
     }
     if let Some(startup_window) = app.get_webview_window("main") {
         if let Err(e) = start_saved_startup_takeover(startup_window) {
@@ -157,12 +199,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
                     process::exit(0);
                 });
             }
-            "d" => {
-                if let Some(webview_window) = app.get_webview_window("tdp") {
-                    let _ = webview_window.show();
-                    let _ = webview_window.set_focus();
-                }
-            }
+            "d" => println!("调试窗口已移除，请使用系统监控页查看诊断信息"),
             _ => (),
         })
         .on_tray_icon_event(|tray, event| match event {
@@ -183,15 +220,32 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
             }
         })
         .build(app)?;
-    #[cfg(windows)]
-    if let Err(e) = window_vibrancy::apply_acrylic(&window, Some((18, 18, 18, 125))) {
-        println!("apply_acrylic main failed: {:?}", e);
-    }
-    #[cfg(windows)]
-    if let Some(tdp_window) = app.get_webview_window("tdp") {
-        if let Err(e) = window_vibrancy::apply_acrylic(tdp_window, Some((18, 18, 18, 125))) {
-            println!("apply_acrylic tdp failed: {:?}", e);
-        }
-    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_silent_start;
+
+    #[test]
+    fn manual_launch_is_full_even_when_silent_is_configured() {
+        assert!(!resolve_silent_start(["NUCtool.exe"], "silent"));
+    }
+
+    #[test]
+    fn autostart_uses_the_saved_mode() {
+        assert!(resolve_silent_start(
+            ["NUCtool.exe", "--autostart"],
+            "silent"
+        ));
+        assert!(!resolve_silent_start(
+            ["NUCtool.exe", "--autostart"],
+            "full"
+        ));
+    }
+
+    #[test]
+    fn explicit_silent_overrides_the_saved_mode() {
+        assert!(resolve_silent_start(["NUCtool.exe", "--silent"], "full"));
+    }
 }

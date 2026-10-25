@@ -30,27 +30,32 @@ use commands::{
         force_fan_sentinel_restart, get_current_fan_mode, get_fan_control_snapshot, get_fan_speeds,
         start_fan_control, stop_fan_control, update_fan_policy,
     },
+    process_heat::get_hot_processes,
     tdp::{
-        apply_display_scene_profile, apply_system_power_profile, get_display_refresh_status,
-        get_rgb, get_rgb_color, get_tdp, lock_cpu_tdp, lock_tdp, set_cpu_tdp,
-        set_display_refresh_rate, set_gpu_clock_limit, set_rgb, set_rgb_color_n, set_rgb_color_y,
-        set_tdp,
+        get_display_refresh_status, get_power_source, get_rgb, get_rgb_color,
+        get_system_power_parameters, get_tdp, set_display_refresh_rate,
     },
     vendor::{
-        apply_vendor_battery, apply_vendor_lighting, apply_vendor_whisper,
-        get_vendor_service_status,
+        apply_author_battery_limit, apply_author_benchmark_mode, apply_author_keyboard_basic,
+        apply_author_power_plan, apply_author_power_profile, apply_vendor_aux_setting, apply_vendor_battery,
+        apply_vendor_custom_display, apply_vendor_preset_display, apply_vendor_display_mode, apply_vendor_key,
+        apply_vendor_keyboard_color, apply_vendor_keyboard_effect, apply_vendor_key_colors,
+        apply_vendor_key_palette, apply_vendor_lightbar, apply_vendor_lightbar_profile,
+        apply_vendor_lightbar_effect, apply_vendor_osd, apply_vendor_whisper,
+        get_author_bridge_status, get_vendor_service_status, read_author_hardware_state,
+        reset_vendor_display_mode, apply_vendor_passive_cooling, restore_vendor_performance_defaults,
+        update_vendor_performance_profile,
     },
 };
 use plug::{
     config::saved_startup_takeover_enabled,
-    diagnostics::{app_log, start_frontend_watchdog},
+    diagnostics::app_log,
     fan::{fan_reset, init_snapshot, start_fan_sentinel},
-    process_sentinel::{
-        acquire_main_instance_lock, maybe_run_external_sentinel_from_args, start_external_sentinel,
-    },
+    process_sentinel::{acquire_main_instance_lock, maybe_run_external_sentinel_from_args},
     setup,
     struct_set::{FanActorSnapshot, FanControlState},
 };
+use plug::studio_monitor::get_studio_monitor_snapshot;
 
 #[cfg(unix)]
 use linux_plug::sysfs::sys_init;
@@ -75,8 +80,6 @@ fn main() {
     if !acquire_main_instance_lock() {
         return;
     }
-    #[cfg(windows)]
-    start_external_sentinel();
     #[cfg(debug_assertions)]
     let devtools = tauri_plugin_devtools::init();
     #[cfg(debug_assertions)]
@@ -161,12 +164,12 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            Some(vec![]),
+            Some(vec!["--autostart"]),
         ))
         .manage(fan_control_state)
         .setup(|app| {
             app_log("app", "info", "setup.start", "entering tauri setup");
-            start_frontend_watchdog(app.handle().clone());
+            commands::autostart::migrate_legacy_autostart(app.handle());
             let result = setup::init(app);
             match &result {
                 Ok(()) => app_log("app", "info", "setup.done", "tauri setup completed"),
@@ -189,19 +192,11 @@ fn main() {
             export_monitor_log_csv,
             get_fan_speeds,
             get_tdp,
-            set_tdp,
-            lock_tdp,
-            set_cpu_tdp,
-            lock_cpu_tdp,
-            apply_system_power_profile,
+            get_system_power_parameters,
+            get_power_source,
             get_display_refresh_status,
             set_display_refresh_rate,
-            apply_display_scene_profile,
-            set_gpu_clock_limit,
-            set_rgb,
             get_rgb,
-            set_rgb_color_y,
-            set_rgb_color_n,
             get_rgb_color,
             autostart_status,
             autostart_set,
@@ -209,10 +204,35 @@ fn main() {
             frontend_heartbeat,
             get_diagnostic_log_path,
             get_diagnostic_summary,
+            get_hot_processes,
+            apply_author_battery_limit,
+            apply_author_keyboard_basic,
+            apply_author_benchmark_mode,
+            apply_author_power_profile,
+            apply_author_power_plan,
+            read_author_hardware_state,
+            apply_vendor_display_mode,
+            apply_vendor_key,
             apply_vendor_battery,
-            apply_vendor_lighting,
+            apply_vendor_osd,
+            apply_vendor_keyboard_color,
+            apply_vendor_keyboard_effect,
+            apply_vendor_key_colors,
+            apply_vendor_key_palette,
+            apply_vendor_lightbar,
+            apply_vendor_lightbar_profile,
+            apply_vendor_lightbar_effect,
+            apply_vendor_aux_setting,
             apply_vendor_whisper,
-            get_vendor_service_status
+            apply_vendor_custom_display,
+            apply_vendor_preset_display,
+            reset_vendor_display_mode,
+            get_author_bridge_status,
+            get_vendor_service_status,
+            apply_vendor_passive_cooling,
+            restore_vendor_performance_defaults,
+            update_vendor_performance_profile,
+            get_studio_monitor_snapshot
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

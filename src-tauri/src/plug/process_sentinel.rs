@@ -32,6 +32,7 @@ const STARTUP_GRACE_MS: u64 = 75_000;
 const RESUME_GAP_MS: u64 = 30_000;
 const RESUME_GRACE_MS: u64 = 60_000;
 const MAIN_LOCK_FILE: &str = "main_instance.lock";
+const MAIN_ACTIVATE_FILE: &str = "main_instance.activate";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -40,6 +41,7 @@ static MAIN_INSTANCE_LOCK: OnceLock<File> = OnceLock::new();
 
 pub fn acquire_main_instance_lock() -> bool {
     let lock_path = get_config_dir().join(MAIN_LOCK_FILE);
+    let activate_path = get_config_dir().join(MAIN_ACTIVATE_FILE);
     if let Some(parent) = lock_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -51,6 +53,7 @@ pub fn acquire_main_instance_lock() -> bool {
             .open(&lock_path)
         {
             Ok(mut file) => {
+                let _ = fs::remove_file(&activate_path);
                 let _ = write!(
                     file,
                     "{{\"pid\":{},\"started_ms\":{}}}",
@@ -70,6 +73,12 @@ pub fn acquire_main_instance_lock() -> bool {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 if let Some(pid) = read_lock_pid(&lock_path) {
                     if process_alive(pid) {
+                        if manual_activation_requested() {
+                            let _ = fs::write(
+                                &activate_path,
+                                format!("{{\"requested_ms\":{}}}", now_ms_u64()),
+                            );
+                        }
                         app_log(
                             "app",
                             "warn",
@@ -103,6 +112,40 @@ pub fn acquire_main_instance_lock() -> bool {
     false
 }
 
+fn manual_activation_requested() -> bool {
+    !env::args_os().any(|arg| {
+        arg == "--autostart"
+            || arg == "--silent"
+            || arg == "--nuctool-wmi-helper"
+            || arg == EXTERNAL_SENTINEL_ARG
+    })
+}
+
+pub fn start_main_instance_activation_listener(app: tauri::AppHandle) {
+    let activate_path = get_config_dir().join(MAIN_ACTIVATE_FILE);
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(250));
+        if !activate_path.exists() {
+            continue;
+        }
+        if fs::remove_file(&activate_path).is_err() {
+            continue;
+        }
+
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            app_log(
+                "app",
+                "info",
+                "single_instance.activated",
+                "existing main window shown for a manual launch request",
+            );
+        }
+    });
+}
+
 pub fn maybe_run_external_sentinel_from_args() -> bool {
     let args: Vec<OsString> = env::args_os().collect();
     if !args.iter().any(|arg| arg == EXTERNAL_SENTINEL_ARG) {
@@ -120,6 +163,7 @@ pub fn maybe_run_external_sentinel_from_args() -> bool {
     true
 }
 
+#[allow(dead_code)]
 pub fn start_external_sentinel() {
     let exe = match env::current_exe() {
         Ok(exe) => exe,

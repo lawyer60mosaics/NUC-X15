@@ -43,7 +43,7 @@ impl WmiClient {
             Ok(model) => model,
             Err(e) => {
                 eprintln!("WmiClient send_get_model failed: {}", e);
-                0
+                -1
             }
         }
     }

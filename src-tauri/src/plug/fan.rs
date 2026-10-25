@@ -7,7 +7,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, SyncSender, TryRecvError},
-        Arc, OnceLock, RwLock,
+        Arc, Mutex, OnceLock, RwLock,
     },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -15,7 +15,10 @@ use std::{
 use tauri::{Emitter, Manager, WebviewWindow};
 
 use crate::plug::{
-    config::{default_fan_data, get_monitor_log_file_path, load_saved_fan_data},
+    config::{
+        default_fan_data, get_monitor_log_file_path, load_saved_fan_data, normalize_fan_data,
+        uses_direct_fan_backend,
+    },
     constants::{
         FAN_RAMP_STEP, FAN_RAMP_STEP_DOWN, FAST_RAMP_UP, MAX_FAN_SPEED_PERCENT,
         MAX_MONITOR_SAMPLE_INTERVAL_MS, MAX_SENSOR_RPM, MAX_TEMP_LIMIT,
@@ -31,7 +34,7 @@ use crate::plug::{
     models::ControlState,
     ramp::ramp_speed_internal,
     struct_set::{
-        ApiFan, FanActorSnapshot, FanControlMode, FanControlPolicy, FanData, FanSpeeds, TDP,
+        ApiFan, FanActorSnapshot, FanControlMode, FanControlPolicy, FanData, FanPoint, FanSpeeds, TDP,
     },
 };
 
@@ -43,6 +46,31 @@ static SENSOR_PUSH_INTERVAL_MS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(1000);
 /// Fan Actor 通道：RwLock 允许 Actor 挂死后替换通道
 static FAN_ACTOR_TX: RwLock<Option<SyncSender<FanActorMessage>>> = RwLock::new(None);
+static VENDOR_FAN_INTERLOCK: Mutex<()> = Mutex::new(());
+static EC_CONTROL_ACTIVE: AtomicBool = AtomicBool::new(false);
+static VENDOR_PASSIVE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+fn vendor_fan_operation_allowed(ec_active: bool, takeover_pending: bool, snapshot_running: bool) -> bool {
+    !ec_active && !takeover_pending && !snapshot_running
+}
+
+#[cfg(windows)]
+pub(crate) fn set_vendor_passive_active(active: bool) {
+    VENDOR_PASSIVE_ACTIVE.store(active, Ordering::SeqCst);
+}
+
+/// Serialize vendor fan-affecting calls with every EC takeover. The UI check
+/// is only advisory; this backend guard is the actual ownership boundary.
+#[cfg(windows)]
+pub(crate) fn with_vendor_fan_operation<T>(operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let _guard = VENDOR_FAN_INTERLOCK.lock().map_err(|_| "风扇互斥锁不可用".to_string())?;
+    if !vendor_fan_operation_allowed(
+        EC_CONTROL_ACTIVE.load(Ordering::SeqCst), has_saved_runtime(), read_snapshot().running,
+    ) {
+        return Err("EC 正在接管或准备接管风扇；请先交还系统控制，并确认 EC 状态已停止".to_string());
+    }
+    operation()
+}
 /// 外部看门狗心跳，Actor 在每次 WMI 调用前更新
 static ACTOR_HEARTBEAT: AtomicU64 = AtomicU64::new(0);
 /// Actor 被看门狗判定为挂死时置 true
@@ -51,6 +79,11 @@ static FAN_ACTOR_GENERATION: AtomicU64 = AtomicU64::new(0);
 static LAST_SENTINEL_RESTART_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_RUNTIME: RwLock<Option<(FanData, WebviewWindow)>> = RwLock::new(None);
 const INVALID_TEMP_RELEASE_THRESHOLD: u8 = 3;
+const FAN_STALL_TEMP: i64 = 60;
+const FAN_STALL_CONFIRM_SAMPLES: u8 = 2;
+// 常用档位仍需保留一条独立的热保护通道，避免低噪曲线把风扇上限压得过低。
+const THERMAL_BOOST_TEMP: i64 = 78;
+const THERMAL_PROTECT_TEMP: i64 = 88;
 const TDP_CACHE_TTL_MS: u64 = 5_000;
 const TDP_COALESCE_WAIT_MS: u64 = 1_500;
 const TDP_LOCK_CHECK_INTERVAL_MS: u64 = 5_000;
@@ -230,6 +263,8 @@ fn update_snapshot(speeds: &FanSpeeds, ctrl_state: &ControlState) {
         snap.gpu_temp = Some(speeds.right_temp);
         snap.cpu_fan_rpm = Some(speeds.left_fan_speed);
         snap.gpu_fan_rpm = Some(speeds.right_fan_speed);
+        snap.cpu_fan_stalled = ctrl_state.cpu_fan_stalled;
+        snap.gpu_fan_stalled = ctrl_state.gpu_fan_stalled;
         if let Some((cpu1, cpu2, gpu1, gpu2, _)) = tdp {
             snap.cpu_power_limit_w = (cpu1 > 0).then_some(cpu1);
             snap.cpu_power_short_w = (cpu2 > 0).then_some(cpu2);
@@ -259,6 +294,15 @@ fn remember_runtime(fan_data: &FanData, webview_window: &WebviewWindow) {
 
 pub fn start_saved_startup_takeover(webview_window: WebviewWindow) -> Result<(), String> {
     let fan_data = load_saved_fan_data()?;
+    if !uses_direct_fan_backend(&fan_data) {
+        app_log(
+            "startup",
+            "info",
+            "takeover.vendor_backend",
+            "NUC service backend selected; direct EC actor remains stopped",
+        );
+        return Ok(());
+    }
     if !fan_data.control.startup_takeover_enabled {
         app_log(
             "startup",
@@ -284,6 +328,7 @@ pub fn start_saved_startup_takeover(webview_window: WebviewWindow) -> Result<(),
         .try_send(FanActorMessage::Start {
             fan_data,
             webview_window,
+            reply: None,
         })
         .map_err(|error| format!("启动后自动接管排队失败: {}", error))?;
     app_log(
@@ -317,11 +362,14 @@ enum FanActorMessage {
     Start {
         fan_data: FanData,
         webview_window: WebviewWindow,
+        reply: Option<mpsc::SyncSender<Result<(), String>>>,
     },
     UpdatePolicy {
         fan_data: FanData,
     },
-    Stop,
+    Stop {
+        reply: Option<mpsc::SyncSender<bool>>,
+    },
     GetTdp {
         reply: mpsc::SyncSender<(i64, i64, i64, i64, i64)>,
     },
@@ -357,7 +405,9 @@ enum FanActorMessage {
 #[allow(dead_code)]
 pub fn fan_init() {
     if let Ok(driver) = ApiFan::try_init() {
-        driver.set_fan_control();
+        if !driver.set_fan_control() {
+            return;
+        }
     } else {
         return;
     }
@@ -395,7 +445,7 @@ pub fn fan_reset() {
 /// 将百分比转换为硬件原始值并写入风扇
 /// Windows: 0-100% → 0-200 (寄存器值)
 /// Linux:   0-100% → 0-255 (PWM 值)
-pub fn fan_set(left: i64, right: i64, driver: &ApiFan) {
+pub fn fan_set(left: i64, right: i64, driver: &ApiFan) -> bool {
     #[cfg(windows)]
     let (l, r) = ((left * 2).clamp(0, 200), (right * 2).clamp(0, 200));
     #[cfg(unix)]
@@ -422,9 +472,42 @@ pub fn fan_set(left: i64, right: i64, driver: &ApiFan) {
         "FAN_L: {}% / FAN_R: {}% RAW: {}/{} RESULT:{}",
         left, right, l, r, ok
     );
+    ok
 }
 
 /// 核心控制循环：读取温度，查找曲线，限速写入硬件
+fn curves_for_power_source<'a>(fan_data: &'a FanData, source: &str) -> (&'a [FanPoint], &'a [FanPoint]) {
+    if let Some(curves) = &fan_data.power_curves {
+        match source {
+            "ac" if !curves.ac_left.is_empty() && !curves.ac_right.is_empty() => {
+                return (&curves.ac_left, &curves.ac_right);
+            }
+            "battery" if !curves.dc_left.is_empty() && !curves.dc_right.is_empty() => {
+                return (&curves.dc_left, &curves.dc_right);
+            }
+            _ => {}
+        }
+    }
+    (&fan_data.left_fan, &fan_data.right_fan)
+}
+
+#[cfg(windows)]
+fn ec_power_source() -> &'static str {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut status = SYSTEM_POWER_STATUS::default();
+    if unsafe { GetSystemPowerStatus(&mut status) }.is_err() {
+        return "unknown";
+    }
+    match status.ACLineStatus {
+        1 => "ac",
+        0 => "battery",
+        _ => "unknown",
+    }
+}
+
+#[cfg(unix)]
+fn ec_power_source() -> &'static str { "unknown" }
+
 fn apply_fan_curve(
     fan_data: &FanData,
     driver: &ApiFan,
@@ -448,7 +531,6 @@ fn apply_fan_curve(
 
     // 过滤异常温度读数（<= 0 或 > 110 视为硬件读数异常）
     // 在睡眠/现代待机阶段常见传感器异常。
-    // 恒速模式下不能切自动，否则系统策略可能把风扇拉到满转。
     if !(MIN_TEMP_LIMIT..=MAX_TEMP_LIMIT).contains(&cpu_out)
         || !(MIN_TEMP_LIMIT..=MAX_TEMP_LIMIT).contains(&gpu_out)
     {
@@ -457,22 +539,6 @@ fn apply_fan_curve(
             "温度读数异常 cpu={} gpu={}，异常计数={}",
             cpu_out, gpu_out, state.invalid_temp_streak
         );
-        if constant_mode {
-            let target = constant_speed_target(&fan_data.control);
-            if driver.get_fan_mode() == 2 {
-                let switched = driver.set_fan_control();
-                println!("恒速模式下恢复手动控制: {}", switched);
-            }
-            if state.fan_cache != [target, target] {
-                println!("恒速模式保底写入 {}%（异常温度期间）", target);
-                fan_set(target, target, driver);
-                state.fan_cache = [target, target];
-            }
-            state.ema_target_left = target as f64;
-            state.ema_target_right = target as f64;
-            thread::sleep(Duration::from_millis(control_sleep_ms));
-            return;
-        }
         if state.invalid_temp_streak >= INVALID_TEMP_RELEASE_THRESHOLD
             && !state.released_to_auto_due_invalid
         {
@@ -482,10 +548,31 @@ fn apply_fan_curve(
             );
             let switched = driver.set_fan_auto();
             println!("切换自动风扇: {}", switched);
-            state.released_to_auto_due_invalid = true;
-            state.fan_cache = [0, 0];
-            state.ema_target_left = 0.0;
-            state.ema_target_right = 0.0;
+            if switched {
+                state.released_to_auto_due_invalid = true;
+                state.fan_cache = [0, 0];
+                state.ema_target_left = 0.0;
+                state.ema_target_right = 0.0;
+            }
+        }
+        // 恒速只在传感器仍可用时维持手动输出；传感器持续失效后必须
+        // 交还 EC 自动策略，不能因为恒速模式绕过故障回退。
+        if constant_mode && !state.released_to_auto_due_invalid {
+            let target = constant_speed_target(&fan_data.control);
+            if driver.get_fan_mode() == 2 {
+                let switched = driver.set_fan_control();
+                println!("恒速模式下恢复手动控制: {}", switched);
+            }
+            if state.fan_cache != [target, target] {
+                println!("恒速模式保底写入 {}%（异常温度期间）", target);
+                if fan_set(target, target, driver) {
+                    state.fan_cache = [target, target];
+                }
+            }
+            state.ema_target_left = target as f64;
+            state.ema_target_right = target as f64;
+            thread::sleep(Duration::from_millis(control_sleep_ms));
+            return;
         }
         thread::sleep(Duration::from_secs(2));
         return;
@@ -498,6 +585,10 @@ fn apply_fan_curve(
         println!("{}", "✅ 温度读数恢复，重新接管手动风扇控制".green());
         let switched = driver.set_fan_control();
         println!("重新接管手动风扇: {}", switched);
+        if !switched {
+            thread::sleep(Duration::from_millis(control_sleep_ms));
+            return;
+        }
         state.released_to_auto_due_invalid = false;
         state.fan_cache = [0, 0];
         state.ema_target_left = 0.0;
@@ -535,6 +626,56 @@ fn apply_fan_curve(
 
     // 告警仍使用原始温度，保证高温风险不被平滑延迟掩盖。
     process_alerts(fan_data, state, cpu_out, gpu_out, webview_window);
+    let cpu_stall_was_active = state.cpu_fan_stalled;
+    let gpu_stall_was_active = state.gpu_fan_stalled;
+    let cpu_zero_rpm_expected =
+        fan_data.control.zero_rpm_enabled && cpu_out <= fan_data.control.zero_rpm_threshold;
+    let gpu_zero_rpm_expected =
+        fan_data.control.zero_rpm_enabled && gpu_out <= fan_data.control.zero_rpm_threshold;
+    let cpu_stall_started = update_zero_rpm_stall(
+        cpu_out,
+        cpu_fan_rpm,
+        cpu_zero_rpm_expected,
+        &mut state.cpu_fan_zero_rpm_streak,
+        &mut state.cpu_fan_stalled,
+    );
+    let gpu_stall_started = update_zero_rpm_stall(
+        gpu_out,
+        gpu_fan_rpm,
+        gpu_zero_rpm_expected,
+        &mut state.gpu_fan_zero_rpm_streak,
+        &mut state.gpu_fan_stalled,
+    );
+    for (sensor, started, was_active, is_active) in [
+        (
+            "CPU",
+            cpu_stall_started,
+            cpu_stall_was_active,
+            state.cpu_fan_stalled,
+        ),
+        (
+            "GPU",
+            gpu_stall_started,
+            gpu_stall_was_active,
+            state.gpu_fan_stalled,
+        ),
+    ] {
+        if started {
+            app_log(
+                "fan_safety",
+                "error",
+                "fan_stall.detected",
+                format!("sensor={} action=force_both_fans_100_percent", sensor),
+            );
+        } else if was_active && !is_active {
+            app_log(
+                "fan_safety",
+                "info",
+                "fan_stall.recovered",
+                format!("sensor={} rpm_readback_resumed", sensor),
+            );
+        }
+    }
 
     println!(
         "CPU:{}°C (EMA {:.2}) GPU:{}°C (EMA {:.2}) cacheL:{}% cacheR:{}%",
@@ -547,6 +688,10 @@ fn apply_fan_curve(
         // 立即切回手动并重置缓存/EMA以便马上按曲线写入
         let set_ok = driver.set_fan_control();
         println!("恢复手动控制: {}", set_ok);
+        if !set_ok {
+            thread::sleep(Duration::from_millis(control_sleep_ms));
+            return;
+        }
         state.fan_cache = [0, 0];
         state.ema_cpu = cpu_out as f64;
         state.ema_gpu = gpu_out as f64;
@@ -554,18 +699,42 @@ fn apply_fan_curve(
     }
 
     // 过温保护：超过 TEMP_EMERGENCY 立即满转
-    if cpu_out > TEMP_EMERGENCY || gpu_out > TEMP_EMERGENCY {
+    if cpu_out >= TEMP_EMERGENCY || gpu_out >= TEMP_EMERGENCY {
         if state.fan_cache[0] == 100 && state.fan_cache[1] == 100 {
             println!("{}", "⚠️ 过温，风扇已满转，跳过重复写入".red());
         } else {
             println!("{}", "🔥 过温保护触发，风扇全速运转！".red().bold());
-            fan_set(100, 100, driver);
-            (state.fan_cache[0], state.fan_cache[1]) = (100, 100);
+            if fan_set(100, 100, driver) {
+                (state.fan_cache[0], state.fan_cache[1]) = (100, 100);
+            }
         }
         thread::sleep(Duration::from_secs(4));
         // 更新 EMA 带入最新读数
         state.ema_cpu = ema_cpu_new;
         state.ema_gpu = ema_gpu_new;
+        return;
+    }
+
+    // 卡转检测运行在 EC Actor 内，不依赖前端窗口是否可见。连续两次在
+    // 高温下读到 0 RPM 时，直接对两路写满速并持续保持到 RPM 恢复。
+    if state.cpu_fan_stalled || state.gpu_fan_stalled {
+        if state.fan_cache != [100, 100] {
+            if fan_set(100, 100, driver) {
+                state.fan_cache = [100, 100];
+            } else {
+                app_log(
+                    "fan_safety",
+                    "error",
+                    "fan_stall.full_speed_write_failed",
+                    "failed to write full speed while a fan stall is detected",
+                );
+            }
+        }
+        thread::sleep(Duration::from_millis(control_sleep_ms));
+        state.ema_cpu = ema_cpu_new;
+        state.ema_gpu = ema_gpu_new;
+        state.ema_target_left = 100.0;
+        state.ema_target_right = 100.0;
         return;
     }
 
@@ -585,8 +754,9 @@ fn apply_fan_curve(
                 "🧊 唤醒冷却期 (剩余 {} 个周期)，风扇保持 {}% 保守转速",
                 state.wake_cooldown_ticks_remaining, cs
             );
-            fan_set(cs, cs, driver);
-            state.fan_cache = [cs, cs];
+            if fan_set(cs, cs, driver) {
+                state.fan_cache = [cs, cs];
+            }
         }
         state.wake_cooldown_ticks_remaining = state.wake_cooldown_ticks_remaining.saturating_sub(1);
         state.ema_cpu = cpu_out as f64;
@@ -609,22 +779,49 @@ fn apply_fan_curve(
     }
 
     if constant_mode {
-        let target = constant_speed_target(&fan_data.control);
+        let base_target = constant_speed_target(&fan_data.control);
+        let [mut target_left, mut target_right] =
+            safe_constant_targets(base_target, cpu_use, gpu_use);
+        if state.force_max_fan {
+            target_left = 100;
+            target_right = 100;
+        }
+        target_left = apply_temperature_hysteresis(
+            cpu_use,
+            target_left,
+            state.fan_cache[0],
+            &mut state.cpu_hysteresis_anchor_temp,
+            effective_cpu_hysteresis(fan_data, state.active_mode.clone()),
+        );
+        target_right = apply_temperature_hysteresis(
+            gpu_use,
+            target_right,
+            state.fan_cache[1],
+            &mut state.gpu_hysteresis_anchor_temp,
+            effective_gpu_hysteresis(fan_data, state.active_mode.clone()),
+        );
         if fan_data
             .control
             .control_mode
             .eq_ignore_ascii_case("constant")
         {
-            println!("🔒 控制模式: 恒速模式，固定 {}%", target);
+            println!("🔒 控制模式: 恒速模式，基础 {}%", base_target);
         } else {
-            println!("🔒 控制模式: 恒速配置已启用，固定 {}%", target);
+            println!("🔒 控制模式: 恒速配置已启用，基础 {}%", base_target);
         }
-        if state.fan_cache != [target, target] {
-            fan_set(target, target, driver);
-            state.fan_cache = [target, target];
+        if target_left > base_target || target_right > base_target {
+            println!(
+                "🌡️ 恒速模式热保护覆盖基础输出: CPU {}% / GPU {}%",
+                target_left, target_right
+            );
         }
-        state.ema_target_left = target as f64;
-        state.ema_target_right = target as f64;
+        if state.fan_cache != [target_left, target_right]
+            && fan_set(target_left, target_right, driver)
+        {
+            state.fan_cache = [target_left, target_right];
+        }
+        state.ema_target_left = target_left as f64;
+        state.ema_target_right = target_right as f64;
         state.ema_cpu = cpu_out as f64;
         state.ema_gpu = gpu_out as f64;
         thread::sleep(Duration::from_millis(control_sleep_ms));
@@ -632,14 +829,23 @@ fn apply_fan_curve(
     }
 
     // 从曲线查找目标转速（使用 EMA 后的温度）
-    let mut target_left_raw = match find_speed_for_temp(&fan_data.left_fan, cpu_use, "左") {
+    let source = ec_power_source();
+    if state.last_power_source != source {
+        // A power-source change chooses a different curve; previous temperature
+        // hysteresis must not pin the new curve to the old fan target.
+        state.cpu_hysteresis_anchor_temp = 0;
+        state.gpu_hysteresis_anchor_temp = 0;
+        state.last_power_source = source;
+    }
+    let (left_curve, right_curve) = curves_for_power_source(fan_data, source);
+    let mut target_left_raw = match find_speed_for_temp(left_curve, cpu_use, "左") {
         Some(s) => s.clamp(0, MAX_FAN_SPEED_PERCENT),
         None => {
             thread::sleep(Duration::from_millis(control_sleep_ms));
             return;
         }
     };
-    let mut target_right_raw = match find_speed_for_temp(&fan_data.right_fan, gpu_use, "右") {
+    let mut target_right_raw = match find_speed_for_temp(right_curve, gpu_use, "右") {
         Some(s) => s.clamp(0, MAX_FAN_SPEED_PERCENT),
         None => {
             thread::sleep(Duration::from_millis(control_sleep_ms));
@@ -666,6 +872,11 @@ fn apply_fan_curve(
     let gpu_cap = effective_gpu_max_percent(fan_data, state.active_mode.clone());
     target_left_raw = target_left_raw.clamp(0, cpu_cap);
     target_right_raw = target_right_raw.clamp(0, gpu_cap);
+
+    // NUC 机身和热管余量较小：达到高温区后，保护优先级高于静音档上限。
+    // 78°C 开始逐步抬高最低风速，88°C 至少 100%，避免用户曲线/模式上限导致持续积热。
+    apply_thermal_safety_floor(cpu_use, &mut target_left_raw);
+    apply_thermal_safety_floor(gpu_use, &mut target_right_raw);
 
     target_left_raw = apply_temperature_hysteresis(
         cpu_use,
@@ -694,8 +905,9 @@ fn apply_fan_curve(
             "⚡ 刚刚接管，立即写入目标速度 CPU:{}% GPU:{}%",
             target_left_raw, target_right_raw
         );
-        fan_set(target_left_raw, target_right_raw, driver);
-        (state.fan_cache[0], state.fan_cache[1]) = (target_left_raw, target_right_raw);
+        if fan_set(target_left_raw, target_right_raw, driver) {
+            (state.fan_cache[0], state.fan_cache[1]) = (target_left_raw, target_right_raw);
+        }
         // 更新 EMA 目标以反映写入
         state.ema_target_left = target_left_raw as f64;
         state.ema_target_right = target_right_raw as f64;
@@ -717,8 +929,11 @@ fn apply_fan_curve(
         + (1.0 - SPEED_EMA_ALPHA) * state.ema_target_left;
     let ema_target_right_new = SPEED_EMA_ALPHA * (target_right_raw as f64)
         + (1.0 - SPEED_EMA_ALPHA) * state.ema_target_right;
-    let target_left = ema_target_left_new.round() as i64;
-    let target_right = ema_target_right_new.round() as i64;
+    let mut target_left = ema_target_left_new.round() as i64;
+    let mut target_right = ema_target_right_new.round() as i64;
+    // EMA must not smooth away the emergency floor after a sudden thermal rise.
+    apply_thermal_safety_floor(cpu_use, &mut target_left);
+    apply_thermal_safety_floor(gpu_use, &mut target_right);
 
     let speed_hysteresis = effective_speed_hysteresis(fan_data, state.active_mode.clone());
 
@@ -750,8 +965,14 @@ fn apply_fan_curve(
 
     if cpu_out - state.ema_cpu.round() as i64 >= TEMP_JUMP_THRESHOLD
         || gpu_out - state.ema_gpu.round() as i64 >= TEMP_JUMP_THRESHOLD
+        || cpu_use >= THERMAL_PROTECT_TEMP
+        || gpu_use >= THERMAL_PROTECT_TEMP
     {
         max_up = FAST_RAMP_UP;
+    }
+
+    if cpu_use >= THERMAL_PROTECT_TEMP || gpu_use >= THERMAL_PROTECT_TEMP {
+        max_up = MAX_FAN_SPEED_PERCENT;
     }
 
     if state.force_max_fan {
@@ -790,8 +1011,9 @@ fn apply_fan_curve(
         "🔄 CPU {}%→{}%  GPU {}%→{}%",
         state.fan_cache[0], ramp_left, state.fan_cache[1], ramp_right
     );
-    fan_set(ramp_left, ramp_right, driver);
-    (state.fan_cache[0], state.fan_cache[1]) = (ramp_left, ramp_right);
+    if fan_set(ramp_left, ramp_right, driver) {
+        (state.fan_cache[0], state.fan_cache[1]) = (ramp_left, ramp_right);
+    }
 
     // 更新 EMA 状态
     state.ema_cpu = ema_cpu_new;
@@ -800,6 +1022,48 @@ fn apply_fan_curve(
     state.ema_target_right = ema_target_right_new;
 
     thread::sleep(Duration::from_millis(control_sleep_ms));
+}
+
+fn apply_thermal_safety_floor(temp_now: i64, target: &mut i64) {
+    if temp_now >= THERMAL_PROTECT_TEMP {
+        *target = MAX_FAN_SPEED_PERCENT;
+    } else if temp_now >= THERMAL_BOOST_TEMP {
+        let floor = 60 + (temp_now - THERMAL_BOOST_TEMP) * 3;
+        *target = (*target).max(floor.min(MAX_FAN_SPEED_PERCENT));
+    }
+}
+
+fn safe_constant_targets(base_target: i64, cpu_temp: i64, gpu_temp: i64) -> [i64; 2] {
+    let mut cpu_target = base_target.clamp(0, MAX_FAN_SPEED_PERCENT);
+    let mut gpu_target = cpu_target;
+    apply_thermal_safety_floor(cpu_temp, &mut cpu_target);
+    apply_thermal_safety_floor(gpu_temp, &mut gpu_target);
+    [cpu_target, gpu_target]
+}
+
+fn update_zero_rpm_stall(
+    temperature: i64,
+    rpm: i64,
+    zero_rpm_expected: bool,
+    zero_rpm_streak: &mut u8,
+    stalled: &mut bool,
+) -> bool {
+    let was_stalled = *stalled;
+    if zero_rpm_expected {
+        *zero_rpm_streak = 0;
+        *stalled = false;
+        return false;
+    }
+    if temperature >= FAN_STALL_TEMP && rpm <= 0 {
+        *zero_rpm_streak = zero_rpm_streak.saturating_add(1);
+        if *zero_rpm_streak >= FAN_STALL_CONFIRM_SAMPLES {
+            *stalled = true;
+        }
+    } else {
+        *zero_rpm_streak = 0;
+        *stalled = false;
+    }
+    !was_stalled && *stalled
 }
 
 fn effective_min_speed(control: &FanControlPolicy, temp_now: i64) -> i64 {
@@ -1247,8 +1511,16 @@ fn emergency_release_fans() {
                 return;
             }
         };
-        driver.set_fan_auto();
-        println!("{}", "🚨 紧急释放完成：风扇已切回自动模式".red());
+        if driver.set_fan_auto() {
+            println!("{}", "🚨 紧急释放完成：风扇已切回自动模式".red());
+        } else {
+            app_log(
+                "fan_watchdog",
+                "error",
+                "emergency_release.failed",
+                "set_fan_auto returned false",
+            );
+        }
     });
 }
 
@@ -1365,6 +1637,7 @@ fn sentinel_restart_control(reason: &str, force: bool) -> bool {
     match sender.try_send(FanActorMessage::Start {
         fan_data,
         webview_window,
+        reply: None,
     }) {
         Ok(()) => {
             app_log(
@@ -1391,6 +1664,7 @@ fn sentinel_assess_snapshot(
     snap: &FanActorSnapshot,
     now: u128,
     runtime_available: bool,
+    actor_hung: bool,
 ) -> SentinelAssessment {
     let mut reasons: Vec<String> = Vec::new();
     let mut votes = 0_u8;
@@ -1399,7 +1673,7 @@ fn sentinel_assess_snapshot(
         return SentinelAssessment::default();
     }
 
-    if ACTOR_HUNG.load(Ordering::SeqCst) {
+    if actor_hung {
         votes = votes.saturating_add(1);
         reasons.push("actor_flag".to_string());
     }
@@ -1495,12 +1769,13 @@ fn queue_manual_sentinel_test_restart(
     let sender = fan_actor_sender();
     if !ACTOR_HUNG.load(Ordering::SeqCst) {
         sender
-            .try_send(FanActorMessage::Stop)
+            .try_send(FanActorMessage::Stop { reply: None })
             .map_err(|error| format!("哨兵自检停止命令排队失败: {}", error))?;
         sender
             .try_send(FanActorMessage::Start {
                 fan_data,
                 webview_window,
+                reply: None,
             })
             .map_err(|error| format!("哨兵自检启动命令排队失败: {}", error))?;
         app_log(
@@ -1558,7 +1833,12 @@ pub fn start_fan_sentinel() {
                     "control is stopped; cleared stale actor flag",
                 );
             }
-            let assessment = sentinel_assess_snapshot(&snap, now, runtime_available);
+            let assessment = sentinel_assess_snapshot(
+                &snap,
+                now,
+                runtime_available,
+                ACTOR_HUNG.load(Ordering::SeqCst),
+            );
             if assessment.votes == 0 {
                 if state.subjective_down_since_ms.take().is_some() {
                     app_log(
@@ -1743,8 +2023,21 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                         Ok(FanActorMessage::Start {
                             fan_data,
                             webview_window,
+                            reply,
                         }) => {
-                            remember_runtime(&fan_data, &webview_window);
+                            let _ownership_guard = match VENDOR_FAN_INTERLOCK.lock() {
+                                Ok(guard) => guard,
+                                Err(_) => {
+                                    if let Some(reply) = reply { let _ = reply.try_send(Err("风扇互斥锁不可用".to_string())); }
+                                    continue;
+                                }
+                            };
+                            if VENDOR_PASSIVE_ACTIVE.load(Ordering::SeqCst) {
+                                let error = "厂商被动散热仍在开启；请先在性能页关闭并确认读回，再启用 EC 风扇".to_string();
+                                app_log("fan_actor", "warn", "start.passive_cooling_active", &error);
+                                if let Some(reply) = reply { let _ = reply.try_send(Err(error)); }
+                                continue;
+                            }
                             app_log(
                                 "fan_actor",
                                 "info",
@@ -1758,17 +2051,39 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                                 ),
                             );
                             println!("{}", "✅ Actor 收到启动命令".green().bold());
-                            driver.set_fan_control();
+                            EC_CONTROL_ACTIVE.store(true, Ordering::SeqCst);
+                            if !driver.set_fan_control() {
+                                let error = "failed to enable manual fan control".to_string();
+                                mark_hardware_unavailable(&error);
+                                if driver.set_fan_auto() { EC_CONTROL_ACTIVE.store(false, Ordering::SeqCst); }
+                                if let Some(reply) = reply {
+                                    let _ = reply.try_send(Err(error));
+                                }
+                                continue;
+                            }
                             let init_speed = if is_constant_mode(&fan_data.control) {
                                 constant_speed_target(&fan_data.control)
                             } else {
                                 30
                             };
-                            fan_set(init_speed, init_speed, &driver);
+                            if !fan_set(init_speed, init_speed, &driver) {
+                                let error = "failed to write initial fan speed".to_string();
+                                mark_hardware_unavailable(&error);
+                                if !driver.set_fan_auto() { EC_CONTROL_ACTIVE.store(true, Ordering::SeqCst); }
+                                if let Some(reply) = reply {
+                                    let _ = reply.try_send(Err(error));
+                                }
+                                continue;
+                            }
+                            remember_runtime(&fan_data, &webview_window);
                             let mut ctrl_state = ControlState::new(fan_data.control.mode.clone());
                             ctrl_state.constant_mode = is_constant_mode(&fan_data.control);
                             ctrl_state.constant_speed = fan_data.control.constant_speed;
                             runtime = Some((fan_data, webview_window, ctrl_state));
+                            EC_CONTROL_ACTIVE.store(true, Ordering::SeqCst);
+                            if let Some(reply) = reply {
+                                let _ = reply.try_send(Ok(()));
+                            }
                         }
                         Ok(FanActorMessage::UpdatePolicy { fan_data }) => {
                             if let Ok(mut last_runtime) = LAST_RUNTIME.write() {
@@ -1796,7 +2111,7 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                                 ctrl_state.manual_mode_check_ticks = 0;
                             }
                         }
-                        Ok(FanActorMessage::Stop) => {
+                        Ok(FanActorMessage::Stop { reply }) => {
                             forget_runtime();
                             app_log(
                                 "fan_actor",
@@ -1806,9 +2121,21 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                             );
                             println!("{}", "🛑 Actor 收到停止命令".red());
                             runtime = None;
-                            driver.set_fan_auto();
+                            let reset_ok = driver.set_fan_auto();
+                            if reset_ok { EC_CONTROL_ACTIVE.store(false, Ordering::SeqCst); }
+                            if !reset_ok {
+                                app_log(
+                                    "fan_actor",
+                                    "error",
+                                    "message.stop_failed",
+                                    "set_fan_auto returned false",
+                                );
+                            }
                             if let Ok(mut snap) = shared_snapshot().write() {
                                 *snap = FanActorSnapshot::default();
+                            }
+                            if let Some(reply) = reply {
+                                let _ = reply.try_send(reset_ok);
                             }
                         }
                         // TDP/RGB 请求直接使用 Actor 持有的 driver 实例
@@ -2024,6 +2351,15 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                 }
 
                 if let Some((ref fan_data, ref webview_window, ref mut ctrl_state)) = runtime {
+                    if VENDOR_PASSIVE_ACTIVE.load(Ordering::SeqCst) {
+                        app_log("fan_actor", "warn", "passive_cooling.detected", "vendor passive cooling became active; releasing EC fan takeover");
+                        forget_runtime();
+                        let released = driver.set_fan_auto();
+                        if released { EC_CONTROL_ACTIVE.store(false, Ordering::SeqCst); }
+                        runtime = None;
+                        if let Ok(mut snap) = shared_snapshot().write() { *snap = FanActorSnapshot::default(); }
+                        continue;
+                    }
                     // 检查是否被外部看门狗标记为挂死
                     if ACTOR_HUNG.load(Ordering::SeqCst) {
                         app_log(
@@ -2076,7 +2412,8 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                                     .max(WAKE_COOLDOWN_SPEED)
                                     .clamp(0, MAX_FAN_SPEED_PERCENT)
                             };
-                            fan_set(recovery_speed, recovery_speed, &driver);
+                            let fan_ok =
+                                control_ok && fan_set(recovery_speed, recovery_speed, &driver);
 
                             let target_tdp = tdp_lock.as_ref().map(|(tdp, _)| tdp.clone());
                             let mut tdp_ok = None;
@@ -2126,8 +2463,8 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
                                 "warn",
                                 "control_loop.recovered",
                                 format!(
-                                    "gap_ms={} set_control_ok={} recovery_speed={} tdp_ok={:?}",
-                                    gap_ms, control_ok, recovery_speed, tdp_ok
+                                    "gap_ms={} set_control_ok={} fan_write_ok={} recovery_speed={} tdp_ok={:?}",
+                                    gap_ms, control_ok, fan_ok, recovery_speed, tdp_ok
                                 ),
                             );
                         }
@@ -2163,13 +2500,46 @@ fn fan_actor_sender() -> SyncSender<FanActorMessage> {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_resume_gap, sentinel_assess_snapshot, sentinel_has_objective_down,
-        should_watchdog_mark_hung, ACTOR_HUNG, CONTROL_LOOP_TIMEOUT_MS, RESUME_GAP_MS,
-        SENTINEL_HEARTBEAT_STALE_MS, SENTINEL_OBJECTIVE_CONFIRM_MS, SENTINEL_SAMPLE_STALE_MS,
-        WATCHDOG_HUNG_TIMEOUT_MS,
+        apply_thermal_safety_floor, curves_for_power_source, is_resume_gap, safe_constant_targets, sentinel_assess_snapshot, vendor_fan_operation_allowed,
+        sentinel_has_objective_down, should_watchdog_mark_hung, update_zero_rpm_stall,
+        CONTROL_LOOP_TIMEOUT_MS, RESUME_GAP_MS, SENTINEL_HEARTBEAT_STALE_MS,
+        SENTINEL_OBJECTIVE_CONFIRM_MS, SENTINEL_SAMPLE_STALE_MS, WATCHDOG_HUNG_TIMEOUT_MS,
     };
-    use crate::plug::struct_set::FanActorSnapshot;
-    use std::sync::atomic::Ordering;
+    use crate::plug::struct_set::{FanActorSnapshot, FanData, FanPoint, PowerSourceFanCurves};
+
+    #[test]
+    fn power_source_selects_ec_curves_and_falls_back_to_main() {
+        let point = |speed| vec![FanPoint { temperature: 50, speed }];
+        let mut data = FanData {
+            left_fan: point(40),
+            right_fan: point(41),
+            power_curves: Some(PowerSourceFanCurves {
+                ac_left: point(60), ac_right: point(61),
+                dc_left: point(30), dc_right: point(31),
+            }),
+            ..FanData::default()
+        };
+        assert_eq!(curves_for_power_source(&data, "ac").0[0].speed, 60);
+        assert_eq!(curves_for_power_source(&data, "battery").1[0].speed, 31);
+        assert_eq!(curves_for_power_source(&data, "unknown").0[0].speed, 40);
+        data.power_curves.as_mut().unwrap().ac_left.clear();
+        assert_eq!(curves_for_power_source(&data, "ac").1[0].speed, 41);
+    }
+
+    #[test]
+    fn emergency_temperature_floor_overrides_a_smoothed_low_target() {
+        let mut smoothed_target = 45;
+        apply_thermal_safety_floor(88, &mut smoothed_target);
+        assert_eq!(smoothed_target, 100);
+    }
+
+    #[test]
+    fn vendor_fan_operation_requires_no_ec_owner_or_pending_takeover() {
+        assert!(vendor_fan_operation_allowed(false, false, false));
+        assert!(!vendor_fan_operation_allowed(true, false, false));
+        assert!(!vendor_fan_operation_allowed(false, true, false));
+        assert!(!vendor_fan_operation_allowed(false, false, true));
+    }
 
     #[test]
     fn watchdog_treats_short_stalls_as_hung() {
@@ -2187,12 +2557,59 @@ mod tests {
 
     #[test]
     fn control_loop_timeout_threshold_stays_below_watchdog_hung_threshold() {
-        assert!(CONTROL_LOOP_TIMEOUT_MS < WATCHDOG_HUNG_TIMEOUT_MS);
+        const { assert!(CONTROL_LOOP_TIMEOUT_MS < WATCHDOG_HUNG_TIMEOUT_MS) };
+    }
+
+    #[test]
+    fn fixed_speed_respects_per_fan_thermal_safety_floor() {
+        assert_eq!(safe_constant_targets(25, 50, 50), [25, 25]);
+        assert_eq!(safe_constant_targets(25, 80, 50), [66, 25]);
+        assert_eq!(safe_constant_targets(25, 88, 50), [100, 25]);
+    }
+
+    #[test]
+    fn zero_rpm_stall_requires_confirmation_and_clears_when_recovered() {
+        let mut strikes = 0;
+        let mut stalled = false;
+        assert!(!update_zero_rpm_stall(
+            65,
+            0,
+            false,
+            &mut strikes,
+            &mut stalled
+        ));
+        assert!(update_zero_rpm_stall(
+            66,
+            0,
+            false,
+            &mut strikes,
+            &mut stalled
+        ));
+        assert!(stalled);
+        assert!(!update_zero_rpm_stall(
+            66,
+            1200,
+            false,
+            &mut strikes,
+            &mut stalled
+        ));
+        assert!(!stalled);
+        assert_eq!(strikes, 0);
+        assert!(!update_zero_rpm_stall(
+            70,
+            0,
+            true,
+            &mut strikes,
+            &mut stalled
+        ));
+        assert!(
+            !stalled,
+            "intentional zero-RPM policy must not be treated as a stall"
+        );
     }
 
     #[test]
     fn sentinel_votes_like_quorum_before_objective_down() {
-        ACTOR_HUNG.store(false, Ordering::SeqCst);
         assert!(!sentinel_has_objective_down(
             1,
             SENTINEL_OBJECTIVE_CONFIRM_MS - 1
@@ -2206,7 +2623,6 @@ mod tests {
 
     #[test]
     fn sentinel_assessment_counts_independent_failure_signals() {
-        ACTOR_HUNG.store(false, Ordering::SeqCst);
         let now = 100_000_u128;
         let mut snap = FanActorSnapshot {
             running: true,
@@ -2215,19 +2631,18 @@ mod tests {
             ..FanActorSnapshot::default()
         };
 
-        let assessment = sentinel_assess_snapshot(&snap, now, true);
+        let assessment = sentinel_assess_snapshot(&snap, now, true, false);
         assert_eq!(assessment.votes, 2);
         assert!(assessment.reason.contains("sample_stale"));
         assert!(assessment.reason.contains("heartbeat_stale"));
 
         snap.sampled_at_ms = Some(now);
-        let assessment = sentinel_assess_snapshot(&snap, now, true);
+        let assessment = sentinel_assess_snapshot(&snap, now, true, false);
         assert_eq!(assessment.votes, 1);
     }
 
     #[test]
     fn sentinel_assessment_ignores_resume_sized_gaps() {
-        ACTOR_HUNG.store(false, Ordering::SeqCst);
         let now = u128::from(RESUME_GAP_MS + SENTINEL_HEARTBEAT_STALE_MS + 1);
         let snap = FanActorSnapshot {
             running: true,
@@ -2236,15 +2651,13 @@ mod tests {
             ..FanActorSnapshot::default()
         };
 
-        let assessment = sentinel_assess_snapshot(&snap, now, true);
+        let assessment = sentinel_assess_snapshot(&snap, now, true, false);
         assert_eq!(assessment.votes, 0);
     }
 
     #[test]
     fn sentinel_ignores_stale_actor_flag_when_control_is_stopped() {
-        ACTOR_HUNG.store(true, Ordering::SeqCst);
-        let assessment = sentinel_assess_snapshot(&FanActorSnapshot::default(), 100_000, false);
-        ACTOR_HUNG.store(false, Ordering::SeqCst);
+        let assessment = sentinel_assess_snapshot(&FanActorSnapshot::default(), 100_000, false, true);
         assert_eq!(assessment.votes, 0);
     }
 }
@@ -2574,6 +2987,12 @@ pub async fn start_fan_control(
             return Err(format!("配置解析失败: {}", e));
         }
     };
+    let fan_data = normalize_fan_data(fan_data);
+    if !uses_direct_fan_backend(&fan_data) {
+        return Err(
+            "当前选择了 NUC Software Studio 风扇后端，不能同时启动直接 EC 控制".to_string(),
+        );
+    }
 
     SENSOR_PUSH_INTERVAL_MS.store(
         fan_data.monitor.sample_interval_ms.clamp(
@@ -2583,13 +3002,22 @@ pub async fn start_fan_control(
         Ordering::Relaxed,
     );
     let sender = fan_actor_sender();
+    let (reply_tx, reply_rx) = mpsc::sync_channel(1);
     if let Err(e) = sender.try_send(FanActorMessage::Start {
         fan_data: fan_data.clone(),
         webview_window: webview_window.clone(),
+        reply: Some(reply_tx),
     }) {
         println!("发送启动命令到风扇 Actor 失败: {}", e);
         return Err(format!("风扇控制通道已满: {}", e));
     }
+    let start_result = tauri::async_runtime::spawn_blocking(move || {
+        reply_rx.recv_timeout(Duration::from_secs(15))
+    })
+    .await
+    .map_err(|e| format!("等待风扇启动任务失败: {}", e))?
+    .map_err(|e| format!("等待风扇硬件响应超时: {}", e))?;
+    start_result?;
     remember_runtime(&fan_data, &webview_window);
     Ok(())
 }
@@ -2624,6 +3052,7 @@ pub async fn force_fan_sentinel_restart(
             fallback
         }
     };
+    let fan_data = normalize_fan_data(fan_data);
 
     SENSOR_PUSH_INTERVAL_MS.store(
         fan_data.monitor.sample_interval_ms.clamp(
@@ -2673,11 +3102,15 @@ pub async fn stop_fan_control() -> Result<(), String> {
         .ok()
         .and_then(|guard| guard.as_ref().cloned());
     let sender_present = sender.is_some();
+    let mut stop_reply = None;
 
     if let Some(sender) = sender {
         if !actor_was_hung {
-            match sender.try_send(FanActorMessage::Stop) {
-                Ok(()) => {}
+            let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+            match sender.try_send(FanActorMessage::Stop {
+                reply: Some(reply_tx),
+            }) {
+                Ok(()) => stop_reply = Some(reply_rx),
                 Err(mpsc::TrySendError::Disconnected(_)) => {
                     if let Ok(mut guard) = FAN_ACTOR_TX.write() {
                         *guard = None;
@@ -2691,6 +3124,20 @@ pub async fn stop_fan_control() -> Result<(), String> {
         } else if let Ok(mut guard) = FAN_ACTOR_TX.write() {
             *guard = None;
         }
+    }
+
+    if let Some(reply_rx) = stop_reply {
+        let reset_ok = tauri::async_runtime::spawn_blocking(move || {
+            reply_rx.recv_timeout(Duration::from_secs(6))
+        })
+        .await
+        .map_err(|e| format!("等待风扇复位任务失败: {}", e))?
+        .map_err(|e| format!("等待风扇复位响应超时: {}", e))?;
+        if !reset_ok {
+            return Err("风扇切回自动模式失败".to_string());
+        }
+    } else if EC_CONTROL_ACTIVE.load(Ordering::SeqCst) {
+        return Err("EC 控制线程未确认风扇已交还自动控制；为安全起见，厂商散热操作仍被锁定。请重启程序并检查实际风扇状态。".to_string());
     }
 
     if let Ok(mut snap) = shared_snapshot().write() {
@@ -2718,6 +3165,7 @@ pub async fn update_fan_policy(fan_data: serde_json::Value) -> Result<(), String
             return Err(format!("配置解析失败: {}", e));
         }
     };
+    let fan_data = normalize_fan_data(fan_data);
 
     SENSOR_PUSH_INTERVAL_MS.store(
         fan_data.monitor.sample_interval_ms.clamp(
