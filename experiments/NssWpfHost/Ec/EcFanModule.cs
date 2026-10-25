@@ -23,7 +23,9 @@ namespace NssWpfHost.Ec
         private const int ThermalBoostC = 78;
         private const int ThermalProtectC = 88;
         private const int ThermalEmergencyC = 95;
-        private readonly EcWmiSession _wmi = new EcWmiSession();
+        private readonly IEcTransport _wmi;
+        private readonly Func<Task<string>> _readModel;
+        private readonly Func<CancellationToken, Task> _waitForNextSample;
         private readonly SemaphoreSlim _hardwareGate = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _curveLifecycleGate = new SemaphoreSlim(1, 1);
         private string _model;
@@ -31,9 +33,22 @@ namespace NssWpfHost.Ec
         private CancellationTokenSource _curveCancellation;
         private Task _curveTask = Task.CompletedTask;
         private volatile bool _curveRunning;
+        private EcFanCurveProfile _curveProfile = EcFanPresets.Get(EcFanPreset.Balanced);
 
         public bool IsCurveControlRunning => _curveRunning;
         public bool IsManualControlRequested => _manualRequested;
+        public EcFanPreset? ActivePreset => _curveRunning ? Volatile.Read(ref _curveProfile).Preset : (EcFanPreset?)null;
+
+        public EcFanModule() : this(new EcWmiSession(), () => Task.Run(ReadSystemModel),
+            token => Task.Delay(TimeSpan.FromSeconds(1), token)) { }
+
+        internal EcFanModule(IEcTransport transport, Func<Task<string>> readModel,
+            Func<CancellationToken, Task> waitForNextSample)
+        {
+            _wmi = transport ?? throw new ArgumentNullException(nameof(transport));
+            _readModel = readModel ?? throw new ArgumentNullException(nameof(readModel));
+            _waitForNextSample = waitForNextSample ?? throw new ArgumentNullException(nameof(waitForNextSample));
+        }
 
         public async Task<EcFanSnapshot> ReadSnapshotAsync()
         {
@@ -80,17 +95,29 @@ namespace NssWpfHost.Ec
             finally { _hardwareGate.Release(); }
         }
 
-        public async Task StartCurveControlAsync(Action<string> statusChanged, Action<EcFanSnapshot> snapshotUpdated)
+        public Task StartCurveControlAsync(Action<string> statusChanged, Action<EcFanSnapshot> snapshotUpdated) =>
+            StartCurveControlAsync(EcFanPreset.Balanced, statusChanged, snapshotUpdated);
+
+        public async Task StartCurveControlAsync(EcFanPreset preset, Action<string> statusChanged, Action<EcFanSnapshot> snapshotUpdated)
         {
+            var profile = EcFanPresets.Get(preset);
             await _curveLifecycleGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (_curveRunning) return;
+                if (_curveRunning)
+                {
+                    // Atomic profile swap: do not stop the loop or hand off EC in
+                    // between presets. CPU/GPU always use the same profile per sample.
+                    Volatile.Write(ref _curveProfile, profile);
+                    statusChanged?.Invoke("已切换为“" + profile.Name + "”风扇曲线，转速将逐步调整。");
+                    return;
+                }
                 await _curveTask.ConfigureAwait(false);
                 _curveCancellation?.Dispose();
                 _curveCancellation = null;
 
                 await SetManualControlAsync().ConfigureAwait(false);
+                Volatile.Write(ref _curveProfile, profile);
                 _curveCancellation = new CancellationTokenSource();
                 _curveRunning = true;
                 _curveTask = RunCurveControlAsync(_curveCancellation.Token, statusChanged, snapshotUpdated);
@@ -169,7 +196,7 @@ namespace NssWpfHost.Ec
             var gpuRecoveredSamples = 0;
             var cpuStalled = false;
             var gpuStalled = false;
-            statusChanged?.Invoke("EC 温控曲线已启动，使用平衡默认曲线。");
+            statusChanged?.Invoke("EC “" + Volatile.Read(ref _curveProfile).Name + "”温控曲线已启动。");
 
             try
             {
@@ -188,8 +215,9 @@ namespace NssWpfHost.Ec
                     UpdateStallState(snapshot.GpuTemperatureC, snapshot.RightFanRpm,
                         ref gpuZeroRpmSamples, ref gpuRecoveredSamples, ref gpuStalled);
 
-                    var left = ProfileSpeed(snapshot.CpuTemperatureC, CpuOfficeCurve);
-                    var right = ProfileSpeed(snapshot.GpuTemperatureC, GpuOfficeCurve);
+                    var profile = Volatile.Read(ref _curveProfile);
+                    var left = profile.CpuSpeed(snapshot.CpuTemperatureC);
+                    var right = profile.GpuSpeed(snapshot.GpuTemperatureC);
                     left = ApplyThermalFloor(snapshot.CpuTemperatureC, left);
                     right = ApplyThermalFloor(snapshot.GpuTemperatureC, right);
                     var emergency = snapshot.CpuTemperatureC >= ThermalEmergencyC || snapshot.GpuTemperatureC >= ThermalEmergencyC;
@@ -204,8 +232,8 @@ namespace NssWpfHost.Ec
 
                     if (!emergency && !cpuStalled && !gpuStalled)
                     {
-                        left = Ramp(lastLeft, left, 10, 6);
-                        right = Ramp(lastRight, right, 10, 6);
+                        left = Ramp(lastLeft, left, profile.RampUp, profile.RampDown);
+                        right = Ramp(lastRight, right, profile.RampUp, profile.RampDown);
                         left = ApplyThermalFloor(snapshot.CpuTemperatureC, left);
                         right = ApplyThermalFloor(snapshot.GpuTemperatureC, right);
                     }
@@ -216,7 +244,7 @@ namespace NssWpfHost.Ec
                         lastLeft = left;
                         lastRight = right;
                     }
-                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                    await _waitForNextSample(cancellationToken).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
@@ -227,42 +255,16 @@ namespace NssWpfHost.Ec
             finally
             {
                 _curveRunning = false;
-                try { await ReturnToEcAutoAsync().ConfigureAwait(false); }
+                try
+                {
+                    await ReturnToEcAutoAsync().ConfigureAwait(false);
+                    statusChanged?.Invoke("EC 温控曲线已停止，已请求交还自动控制。");
+                }
                 catch (Exception error) { statusChanged?.Invoke("恢复 EC 自动模式失败：" + error.Message); }
-                statusChanged?.Invoke("EC 温控曲线已停止。");
             }
         }
-
-        private static readonly (int Temperature, int Speed)[] CpuOfficeCurve =
-        {
-            (37, 20), (45, 20), (57, 46), (70, 62), (85, 70)
-        };
-
-        private static readonly (int Temperature, int Speed)[] GpuOfficeCurve =
-        {
-            (35, 20), (43, 20), (54, 42), (65, 57), (82, 65)
-        };
 
         private static bool IsValidSensor(int temperature) => temperature >= 1 && temperature <= 105;
-
-        private static int ProfileSpeed(int temperature, (int Temperature, int Speed)[] curve)
-        {
-            if (temperature <= curve[0].Temperature) return curve[0].Speed;
-            for (var index = 1; index < curve.Length; index++)
-            {
-                var upper = curve[index];
-                if (temperature <= upper.Temperature)
-                {
-                    var lower = curve[index - 1];
-                    var deltaTemp = upper.Temperature - lower.Temperature;
-                    if (deltaTemp <= 0) return Math.Max(lower.Speed, upper.Speed);
-                    var interpolated = lower.Speed + (upper.Speed - lower.Speed) *
-                        (temperature - lower.Temperature) / deltaTemp;
-                    return Math.Max(MinimumFanPercent, interpolated);
-                }
-            }
-            return Math.Max(MinimumFanPercent, curve[curve.Length - 1].Speed);
-        }
 
         private static int ApplyThermalFloor(int temperature, int requested)
         {
@@ -372,7 +374,7 @@ namespace NssWpfHost.Ec
             if (_model != null) return _model;
             // Model detection is read-only and follows the model IDs used by ApiFan.try_init().
             // Querying arbitrary unsupported models is rejected before any EC write is allowed.
-            var model = await Task.Run(() => ReadSystemModel()).ConfigureAwait(false);
+            var model = await _readModel().ConfigureAwait(false);
             if (model != "LAPKC71E" && model != "LAPKC71F" && model != "LAPAC71H")
                 throw new NotSupportedException("不支持的 NUC X15 型号：" + model);
             _model = model;

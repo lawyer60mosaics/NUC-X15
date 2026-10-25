@@ -13,7 +13,7 @@ namespace NssWpfHost.Ec
     /// COM/WMI state off the WPF dispatcher and preserves the Rust helper's
     /// single-request-at-a-time behavior.
     /// </summary>
-    internal sealed class EcWmiSession : IDisposable
+    internal sealed class EcWmiSession : IEcTransport
     {
         private readonly BlockingCollection<Action> _queue = new BlockingCollection<Action>();
         private readonly Thread _worker;

@@ -43,8 +43,14 @@
     <Border Background="#192D3B" Padding="22" Margin="0,0,8,0">
      <StackPanel>
       <TextBlock Text="自动温控" FontSize="22" Foreground="#00AFE5"/>
-      <TextBlock Text="按 CPU 与显卡温度分别调节风扇，温度升高时自动加速。" Foreground="#B9CBD5" TextWrapping="Wrap" Margin="0,14,0,22"/>
-      <Button Content="启用平衡温控" Click="StartCurve" HorizontalAlignment="Left"/>
+      <TextBlock Text="选择档位即启用对应风扇曲线；运行中可直接切换。" Foreground="#B9CBD5" TextWrapping="Wrap" Margin="0,14,0,18"/>
+      <WrapPanel>
+       <Button x:Name="QuietPreset" Content="静音" Tag="Quiet" Click="SelectPreset"/>
+       <Button x:Name="BalancedPreset" Content="平衡" Tag="Balanced" Click="SelectPreset"/>
+       <Button x:Name="PerformancePreset" Content="性能" Tag="Performance" Click="SelectPreset"/>
+      </WrapPanel>
+      <TextBlock x:Name="PresetDescription" Text="静音降低噪声，平衡适合日常，性能优先散热。" Foreground="#B9CBD5" TextWrapping="Wrap" Margin="0,12,0,0"/>
+      <TextBlock Text="三档只调整 EC 风扇，设备性能仍在官方性能页面设置。" Foreground="#94ACBB" TextWrapping="Wrap" Margin="0,12,0,0"/>
       <TextBlock Text="温度保护始终启用。温度读取或写入异常时请求恢复固件自动控制。" Foreground="#94ACBB" TextWrapping="Wrap" Margin="0,16,0,0"/>
      </StackPanel>
     </Border>

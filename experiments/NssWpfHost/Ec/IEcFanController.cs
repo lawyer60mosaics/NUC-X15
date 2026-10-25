@@ -7,9 +7,10 @@ namespace NssWpfHost.Ec
     {
         bool IsCurveControlRunning { get; }
         bool IsManualControlRequested { get; }
+        EcFanPreset? ActivePreset { get; }
         Task<EcFanSnapshot> ReadSnapshotAsync();
         Task SetManualControlAsync();
-        Task StartCurveControlAsync(Action<string> statusChanged, Action<EcFanSnapshot> snapshotUpdated);
+        Task StartCurveControlAsync(EcFanPreset preset, Action<string> statusChanged, Action<EcFanSnapshot> snapshotUpdated);
         Task StopCurveControlAsync();
         Task<bool> SetFanPercentAsync(int leftPercent, int rightPercent);
         Task ReleaseManualControlOnExitAsync();

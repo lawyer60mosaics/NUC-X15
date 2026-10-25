@@ -3,6 +3,7 @@ using System.Security.Principal;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using NssWpfHost.Ec;
 
@@ -11,6 +12,7 @@ namespace IntelNucStudio.Ec
     public partial class EcControlPage : UserControl, IDisposable
     {
         private readonly IEcFanController _module;
+        private readonly Action _demandAdministrator;
         private readonly DispatcherTimer _timer;
         private Task _action = Task.CompletedTask;
         private Task _poll = Task.CompletedTask;
@@ -26,9 +28,10 @@ namespace IntelNucStudio.Ec
 
         public EcControlPage() : this(new EcFanModule()) { }
 
-        internal EcControlPage(IEcFanController module)
+        internal EcControlPage(IEcFanController module, Action demandAdministrator = null)
         {
             _module = module ?? throw new ArgumentNullException(nameof(module));
+            _demandAdministrator = demandAdministrator ?? RequireAdministrator;
             InitializeComponent();
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _timer.Tick += (sender, args) => Poll();
@@ -76,8 +79,18 @@ namespace IntelNucStudio.Ec
 
         private void UpdateControlState()
         {
-            ControlState.Text = _module.IsCurveControlRunning ? "EC 平衡温控请求运行中"
-                : _module.IsManualControlRequested ? "EC 固定转速请求运行中" : "未持有 EC 接管请求";
+            var active = _module.IsCurveControlRunning ? _module.ActivePreset : null;
+            ControlState.Text = active.HasValue ? "EC “" + EcFanPresets.Get(active.Value).Name + "”温控请求运行中"
+                : _module.IsManualControlRequested ? (_fixed ? "EC 固定转速请求运行中" : "EC 接管尚未释放，请交还自动控制") : "未持有 EC 接管请求";
+            foreach (var button in new[] { QuietPreset, BalancedPreset, PerformancePreset })
+            {
+                var selected = active.HasValue && button.Tag.ToString() == active.Value.ToString();
+                button.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#00799D" : "#28495C"));
+                button.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#F1D54A" : "#418197"));
+                button.FontWeight = selected ? FontWeights.Bold : FontWeights.Normal;
+            }
+            PresetDescription.Text = active.HasValue ? EcFanPresets.Get(active.Value).Description
+                : "静音降低噪声，平衡适合日常，性能优先散热。";
             if (_reportedControl != HasControlRequest)
             {
                 _reportedControl = HasControlRequest;
@@ -112,20 +125,30 @@ namespace IntelNucStudio.Ec
                     throw new InvalidOperationException("请先退出本程序，再右键 NucSoftwareStudio.exe，选择“以管理员身份运行”。");
         }
 
-        private void StartCurve(object sender, RoutedEventArgs args) => RunAction(async () =>
+        private void SelectPreset(object sender, RoutedEventArgs args)
         {
-            RequireAdministrator();
-            _fixed = false;
-            await _module.StopCurveControlAsync();
-            await _module.StartCurveControlAsync(
-                message => Dispatcher.BeginInvoke(new Action(() => { ActionStatus.Text = message; UpdateControlState(); })),
-                snapshot => { });
-            ActionStatus.Text = "已发送 EC 温控接管请求；请观察温度和 RPM。";
-        });
+            if (!(sender is Button button) || !Enum.TryParse(button.Tag?.ToString(), out EcFanPreset preset)) return;
+            RunAction(async () =>
+            {
+                _demandAdministrator();
+                var wasFixed = _fixed;
+                _fixed = false;
+                try
+                {
+                    await _module.StartCurveControlAsync(preset,
+                        message => Dispatcher.BeginInvoke(new Action(() => { ActionStatus.Text = message; UpdateControlState(); })),
+                        snapshot => { });
+                    if (!_module.IsCurveControlRunning)
+                        throw new InvalidOperationException("温控曲线未能保持运行，请检查温度/RPM 读回与硬件状态。");
+                    ActionStatus.Text = "已请求使用“" + EcFanPresets.Get(preset).Name + "”风扇曲线，转速将逐步调整；请观察 RPM。";
+                }
+                catch { _fixed = wasFixed && _module.IsManualControlRequested && !_module.IsCurveControlRunning; throw; }
+            });
+        }
 
         private void ApplyFixed(object sender, RoutedEventArgs args) => RunAction(async () =>
         {
-            RequireAdministrator();
+            _demandAdministrator();
             _fixed = false;
             await _module.StopCurveControlAsync();
             await _module.SetManualControlAsync();

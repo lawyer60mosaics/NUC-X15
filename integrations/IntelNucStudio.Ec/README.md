@@ -17,6 +17,12 @@ original close glyph and Alt+F4 hand off before exiting instead of only hiding
 the window. This first version does not provide an out-of-process crash
 watchdog; forced termination cannot execute exit cleanup.
 
+Version 0.1.2 adds Quiet / Balanced / Performance EC fan presets using the existing
+repository's 35–85°C CPU/GPU curves. Selecting a preset starts it; selecting another
+while running atomically replaces the profile without handing off EC ownership.
+Ramp rates and thermal overrides remain active, and these presets do not alter
+the official vendor CPU/GPU performance settings.
+
 The copied EXE configuration explicitly registers WCF `netHttpBinding` and opts
 into .NET Framework 4.8. Without this compatibility configuration, the original
 `ProfilesView` fails to initialize before connecting to Uniwill Service. The
@@ -38,8 +44,9 @@ manifest. Optional development startup diagnostics are enabled only when
 Verification: REA identified the actual App, MainWindow, ProfilesView and official
 close handler. Runtime diagnostics confirmed the EC DLL loaded in the original
 `NucSoftwareStudio.exe` and its MainWindow; the original five modules and service
-telemetry became available after the WCF fix. The WPF test executable covers seven
-navigation, interlock, failure-recovery and exit scenarios with a fake EC boundary:
+telemetry became available after the WCF fix. The test executable covers 14 curve,
+production-loop hot-swap, thermal, input validation, WPF navigation, interlock,
+failure-recovery and exit scenarios with simulated EC boundaries:
 
 ```powershell
 rtk proxy dotnet build integrations/IntelNucStudio.Ec.Tests -c Release

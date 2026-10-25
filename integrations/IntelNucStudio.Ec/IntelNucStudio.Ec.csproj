@@ -5,13 +5,15 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>IntelNucStudio.Ec</AssemblyName>
     <RootNamespace>IntelNucStudio.Ec</RootNamespace>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Management" />
     <Compile Include="../../experiments/NssWpfHost/Ec/EcFanModule.cs" Link="Ec/EcFanModule.cs" />
     <Compile Include="../../experiments/NssWpfHost/Ec/EcWmiSession.cs" Link="Ec/EcWmiSession.cs" />
     <Compile Include="../../experiments/NssWpfHost/Ec/IEcFanController.cs" Link="Ec/IEcFanController.cs" />
+    <Compile Include="../../experiments/NssWpfHost/Ec/EcFanPresets.cs" Link="Ec/EcFanPresets.cs" />
+    <Compile Include="../../experiments/NssWpfHost/Ec/IEcTransport.cs" Link="Ec/IEcTransport.cs" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="All" />
   </ItemGroup>
 </Project>

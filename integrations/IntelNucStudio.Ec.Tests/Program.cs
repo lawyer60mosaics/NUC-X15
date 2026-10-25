@@ -33,7 +33,7 @@ namespace IntelNucStudio.Ec.Tests
                 try { await RunScenarios(app); }
                 catch (Exception error) { Console.Error.WriteLine(error); app.Shutdown(1); }
             };
-            var timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
+            var timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
             timeout.Tick += (sender, args) => { Console.Error.WriteLine("WPF test timed out"); app.Shutdown(2); };
             timeout.Start();
             app.Run();
@@ -45,6 +45,7 @@ namespace IntelNucStudio.Ec.Tests
 
         private static async Task RunScenarios(Application app)
         {
+            await EcPresetScenarios.RunAsync(Pass);
             var home = new FeatureMgr.Views.ProfilesView { Content = new Button { Content = "Official setting" } };
             var officialRegion = new ContentControl { Content = home };
             var close = new Button { Content = new TextBlock { Text = "\uE106" } };
@@ -59,7 +60,7 @@ namespace IntelNucStudio.Ec.Tests
             await Pump();
             Exception releaseError = null;
             new EcShellIntegration(app, window,
-                () => new EcControlPage(_controller = new FakeController()), error => releaseError = error);
+                () => new EcControlPage(_controller = new FakeController(), () => { }), error => releaseError = error);
             await Pump();
             var entry = Find<Button>(root, value => value.Name == "NssEcModuleEntry");
             Assert(entry.Visibility == Visibility.Visible, "Entry should be visible on the home view");
@@ -82,6 +83,24 @@ namespace IntelNucStudio.Ec.Tests
             Click(entry);
             await Pump();
             var page = Find<EcControlPage>(root, value => true);
+            foreach (var preset in new[] { EcFanPreset.Quiet, EcFanPreset.Performance, EcFanPreset.Balanced })
+            {
+                Click(Find<Button>(page, value => Equals(value.Tag, preset.ToString())));
+                await Pump();
+                Assert(_controller.ActivePreset == preset && _controller.IsCurveControlRunning,
+                    "Preset button did not select " + preset);
+                Assert(Find<TextBlock>(page, value => value.Name == "ControlState").Text.Contains(EcFanPresets.Get(preset).Name),
+                    "Current preset status is incorrect");
+            }
+            Assert(_controller.StartCalls == 3 && _controller.ReleaseCalls == 0, "Preset switching must not release EC");
+            Pass("Three preset buttons switch curves without releasing EC");
+            _controller.FailPreset = EcFanPreset.Quiet;
+            Click(Find<Button>(page, value => Equals(value.Tag, "Quiet")));
+            await Pump();
+            Assert(_controller.ActivePreset == EcFanPreset.Balanced && !officialRegion.IsEnabled,
+                "Failed preset switching must retain the previous preset and lock");
+            _controller.FailPreset = null;
+            Pass("Failed preset switching retains the active curve and official lock");
             _controller.IsManualControlRequested = true;
             Click(Find<Button>(page, value => Equals(value.Content, "重新读取")));
             await Pump();
@@ -152,19 +171,31 @@ namespace IntelNucStudio.Ec.Tests
     {
         public bool IsCurveControlRunning { get; private set; }
         public bool IsManualControlRequested { get; set; }
+        public EcFanPreset? ActivePreset { get; private set; }
+        public EcFanPreset? FailPreset;
+        public int StartCalls;
+        public int ReleaseCalls;
         public bool FailRelease;
         public bool Disposed;
         public Task<EcFanSnapshot> ReadSnapshotAsync() => Task.FromResult(new EcFanSnapshot
             { Model = "TEST-NO-HARDWARE", CpuTemperatureC = 50, GpuTemperatureC = 45, LeftFanRpm = 1800, RightFanRpm = 1600 });
         public Task SetManualControlAsync() { IsManualControlRequested = true; return Task.CompletedTask; }
-        public Task StartCurveControlAsync(Action<string> status, Action<EcFanSnapshot> snapshot)
-            { IsManualControlRequested = IsCurveControlRunning = true; return Task.CompletedTask; }
+        public Task StartCurveControlAsync(EcFanPreset preset, Action<string> status, Action<EcFanSnapshot> snapshot)
+        {
+            if (preset == FailPreset) return Task.FromException(new InvalidOperationException("Simulated preset failure"));
+            StartCalls++;
+            ActivePreset = preset;
+            IsManualControlRequested = IsCurveControlRunning = true;
+            return Task.CompletedTask;
+        }
         public Task StopCurveControlAsync() => ReleaseManualControlOnExitAsync();
         public Task<bool> SetFanPercentAsync(int left, int right) => Task.FromResult(false);
         public Task ReleaseManualControlOnExitAsync()
         {
+            ReleaseCalls++;
             if (FailRelease) return Task.FromException(new InvalidOperationException("Simulated handoff failure"));
             IsManualControlRequested = IsCurveControlRunning = false;
+            ActivePreset = null;
             return Task.CompletedTask;
         }
         public void Dispose() { Disposed = true; }
