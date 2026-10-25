@@ -10,6 +10,7 @@ pub mod process_heat;
 pub mod process_sentinel;
 pub mod ramp;
 pub mod setup;
+pub mod studio_monitor;
 pub mod struct_set;
 pub mod tdp;
 pub mod vendor;

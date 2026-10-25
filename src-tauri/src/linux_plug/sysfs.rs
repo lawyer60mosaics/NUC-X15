@@ -33,13 +33,16 @@ pub fn get_model_id() -> i64 {
         let dmidecode_output = String::from_utf8_lossy(&output.stdout);
         for line in dmidecode_output.lines() {
             if line.contains("Product Name") {
-                if let Some(line) = line.to_string().split(" ").last() {
+                if let Some(line) = line.split_whitespace().last() {
                     println!("Product Name: {}", line);
-                    if line == "LAPAC71H" {
-                        return 1;
-                    } else {
-                        return 0;
-                    }
+                    return match line.trim().to_ascii_uppercase().as_str() {
+                        "LAPKC71E" | "LAPKC71F" => 0,
+                        "LAPAC71H" => 1,
+                        _ => {
+                            eprintln!("Unsupported Product Name: {}", line);
+                            -1
+                        }
+                    };
                 }
             }
         }
@@ -47,7 +50,7 @@ pub fn get_model_id() -> i64 {
     } else {
         eprintln!("Error: {}", String::from_utf8_lossy(&output.stderr))
     }
-    0
+    -1
 }
 
 pub fn get_kernel_version() -> i64 {

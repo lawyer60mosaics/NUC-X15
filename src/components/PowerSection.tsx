@@ -1,162 +1,108 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
+import { scenarioLabel, tr } from '../i18n';
+import FanControlSection from './FanControlSection';
+import PerformanceSection from './PerformanceSection';
+import { PowerSectionProps, SensorValue } from './powerTypes';
 
-import { SCENARIOS } from '../hooks/useFanControl';
-import { scenarioLabel, scenarioNoise, tr } from '../i18n';
+const NavFanIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="2.2" />
+    <path d="M12 9.8c-1.2-3.4.1-6 2.2-6.4 2-.3 3.2 1.5 2.2 3.4C15.6 8.3 13.9 9.3 12 9.8ZM14 13c3.5-.7 5.8.9 5.8 3 0 2-2 2.9-3.7 1.6-1.4-1-2-2.9-2.1-4.6ZM10.2 13.1c-2.3 2.8-5.2 3.1-6.4 1.4-1.1-1.7.1-3.4 2.3-3.2 1.8.1 3.2.8 4.1 1.8Z" />
+  </svg>
+);
 
-type SensorValue = number | '--';
+const ModeIcon = ({ index }: { index: number }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d={index === 0 ? 'M18 15.5A7 7 0 0 1 8.5 6 7.5 7.5 0 1 0 18 15.5Z' : index === 1 ? 'M4 5h16v12H4zM8 21h8' : 'M13 2 4 14h7l-1 8 9-12h-7l1-8Z'} />
+  </svg>
+);
 
-interface PowerSectionProps {
-  cpuTemp: SensorValue;
-  gpuTemp: SensorValue;
-  running: boolean;
-  toggleControl: () => void;
-  selectedScenario: string;
-  requestScenarioChange: (scenario: string) => void;
-  constantSpeedEnabled: boolean;
-  setConstantSpeedEnabled: (enabled: boolean) => void;
-  constantSpeed: number;
-  setConstantSpeed: (speed: number) => void;
-  language?: 'en' | 'zh';
+function temperatureStatus(value: SensorValue, language: 'en' | 'zh') {
+  if (typeof value !== 'number') return tr(language, 'Waiting', '等待数据');
+  if (value >= 85) return tr(language, 'Hot', '高温');
+  if (value >= 70) return tr(language, 'Warm', '偏热');
+  return tr(language, 'Normal', '正常');
 }
 
-const fallbackCpuHistory = [54, 55, 57, 59, 58, 60, 61, 63, 62, 64, 65, 67, 68, 70, 71, 72];
-const fallbackGpuHistory = [42, 43, 43, 44, 45, 44, 46, 47, 48, 48, 49, 50, 50, 51, 52, 53];
-
-function temperatureState(value: SensorValue) {
-  if (typeof value !== 'number') return { label: 'WAITING', className: 'is-idle' };
-  if (value >= 85) return { label: 'HOT', className: 'is-danger' };
-  if (value >= 70) return { label: 'WARM', className: 'is-warm' };
-  return { label: 'NORMAL', className: 'is-normal' };
-}
-
-const ThermalIcon = ({ type }: { type: 'fan' | 'history' | 'load' | 'display' }) => {
-  if (type === 'fan') return <><path d="M12 12c-4-1-5-5-3-7 2-2 5 1 4 5m-1 2c1-4 5-5 7-3 2 2-1 5-5 4m-2-1c4 1 5 5 3 7-2 2-5-1-4-5m1-2c-1 4-5 5-7 3-2-2 1-5 5-4" /><circle cx="12" cy="12" r="1.5" /></>;
-  if (type === 'history') return <><path d="M4 19V5m0 14h16" /><path d="m6 16 4-5 3 2 5-7" /></>;
-  if (type === 'load') return <><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 12h2l1.5-4 2.5 8 1.5-4H18" /></>;
-  return <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></>;
-};
-
-export const PowerSection: React.FC<PowerSectionProps> = ({
-  cpuTemp,
-  gpuTemp,
-  running,
-  toggleControl,
-  selectedScenario,
-  requestScenarioChange,
-  constantSpeedEnabled,
-  setConstantSpeedEnabled,
-  constantSpeed,
-  setConstantSpeed,
-  language = 'en',
-}) => {
-  const [cpuHistory, setCpuHistory] = useState(fallbackCpuHistory);
-  const [gpuHistory, setGpuHistory] = useState(fallbackGpuHistory);
-
-  useEffect(() => {
-    if (typeof cpuTemp === 'number') setCpuHistory((history) => [...history.slice(-15), cpuTemp]);
-  }, [cpuTemp]);
-
-  useEffect(() => {
-    if (typeof gpuTemp === 'number') setGpuHistory((history) => [...history.slice(-15), gpuTemp]);
-  }, [gpuTemp]);
-
-  const chartLines = useMemo(() => {
-    const toPoints = (history: number[]) => history.map((temperature, index) => {
-      const x = (index / Math.max(1, history.length - 1)) * 280;
-      const y = 128 - ((Math.min(100, Math.max(25, temperature)) - 25) / 75) * 108;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
-    return { cpu: toPoints(cpuHistory), gpu: toPoints(gpuHistory) };
-  }, [cpuHistory, gpuHistory]);
-
-  const maxFanThreshold = constantSpeed;
+export const PowerSection: React.FC<PowerSectionProps> = (props) => {
+  const { view, onNavigate, language = 'en' } = props;
   const isZh = language === 'zh';
+  if (view === 'fan') return <FanControlSection {...props} />;
+  if (view === 'performance') return <PerformanceSection {...props} />;
 
-  const updateLinkedFanSpeed = (value: number) => {
-    if (!constantSpeedEnabled) setConstantSpeedEnabled(true);
-    setConstantSpeed(value);
-  };
+  const actualProfile = props.authorReadback?.current_profile_index;
+  const profileText = actualProfile === 1
+    ? tr(language, 'Performance profile', '性能档')
+    : actualProfile === 2
+      ? tr(language, 'Balanced profile', '平衡档')
+      : actualProfile === 3
+        ? tr(language, 'Power-save profile', '省电档')
+        : tr(language, 'Profile unavailable', '性能档暂不可用');
+  const statusSensors = [
+    { label: 'CPU', value: props.cpuTemp },
+    { label: 'GPU', value: props.gpuTemp },
+  ];
 
   return (
-    <div className="thermal-dashboard power-dashboard">
-      <main className="thermal-dashboard-grid">
-        <div className="thermal-column thermal-column-center">
-          <section className="aurora-fan-hero" aria-label={tr(language, 'Primary fan status', '主风扇状态')}>
-            <div className="aurora-fan-hero-copy">
-              <span className="aurora-kicker">{isZh ? '风扇控制' : 'FAN CONTROL'}</span>
-              <strong>{running ? (isZh ? '手动' : 'MANUAL') : (isZh ? '自动' : 'AUTO')}</strong>
-            </div>
-            <div className="aurora-fan-visual" aria-hidden="true">
-              <div className="aurora-fan-ring aurora-fan-ring-outer" />
-              <div className="aurora-fan-ring aurora-fan-ring-inner" />
-              <div
-                className="aurora-fan-blades"
-                style={{ '--aurora-fan-duration': `${Math.max(0.38, 2.25 - maxFanThreshold * 0.017)}s` } as React.CSSProperties}
-              ><i /><i /><i /><i /><i /><i /><i /></div>
-              <div className="aurora-fan-hub"><span>{isZh ? '风扇 01' : 'FAN 01'}</span><strong>{maxFanThreshold}%</strong><small>{isZh ? '上限' : 'CEILING'}</small></div>
-            </div>
-            <div className="aurora-fan-hero-meta">
-              <span><small>CPU</small><strong>{cpuTemp === '--' ? '--' : `${cpuTemp}°C`}</strong></span>
-              <span><small>GPU</small><strong>{gpuTemp === '--' ? '--' : `${gpuTemp}°C`}</strong></span>
-            </div>
-          </section>
-          <section className="thermal-panel thermal-fan-panel">
-            <div className="thermal-panel-heading">
-              <span className="thermal-heading-icon"><svg viewBox="0 0 24 24"><ThermalIcon type="fan" /></svg></span>
-              <div><h3>{isZh ? '风扇阈值' : 'FAN LIMIT'}</h3><p>{isZh ? 'CPU / GPU 共享控制' : 'SHARED CPU / GPU CONTROL'}</p></div>
-              <button type="button" className={running ? 'is-active' : ''} onClick={toggleControl}>{running ? (isZh ? 'EC 接管' : 'EC TAKEOVER') : (isZh ? '自动模式' : 'AUTO MODE')}</button>
-            </div>
-            <div className="thermal-fan-sliders">
-              <label><span><b>{isZh ? '最高输出限制' : 'MAX OUTPUT LIMIT'}</b><small>{isZh ? 'CPU / GPU 共享风扇上限' : 'SHARED CPU / GPU FAN CEILING'}</small><strong>{maxFanThreshold}%</strong></span><input aria-label={isZh ? '最高风扇输出限制' : 'Maximum fan output limit'} type="range" min="20" max="100" value={maxFanThreshold} onChange={(event) => updateLinkedFanSpeed(Number(event.target.value))} /><i><em>20%</em><em>60%</em><em>100%</em></i></label>
-            </div>
-            <label className="thermal-link-control"><input type="checkbox" checked={constantSpeedEnabled} onChange={(event) => setConstantSpeedEnabled(event.target.checked)} /><span>{isZh ? '启用风扇上限' : 'ENABLE FAN CEILING'}</span><small>{isZh ? '同时应用到两组风扇' : 'APPLIES TO BOTH FANS'}</small></label>
-          </section>
+    <div className="dashboard-section power-dashboard overview-dashboard">
+      <div className="section-intro">
+        <span className="section-kicker">{isZh ? '设备状态 / SYSTEM STATUS' : 'DEVICE STATUS / SYSTEM STATUS'}</span>
+        <h2>{isZh ? '设备控制台' : 'DEVICE CONTROL CENTER'}</h2>
+        <p>{isZh ? '先看温度与运行状态，再进入风扇或性能控制。每项设置只交给对应的控制通道。' : 'Review temperatures and operating state, then open fan or performance controls. Each setting has one owner.'}</p>
+      </div>
 
-          <section className="thermal-panel thermal-mode-panel">
-            <div className="thermal-section-label">{isZh ? '性能模式' : 'PERFORMANCE MODE'}</div>
-            <div className="thermal-mode-grid">
-              {Object.keys(SCENARIOS).map((key, index) => (
-                <button key={key} type="button" className={selectedScenario === key ? 'is-active' : ''} onClick={() => requestScenarioChange(key)}>
-                  <svg viewBox="0 0 24 24"><path d={index === 0 ? 'M12 3v18M4 12h16' : index === 1 ? 'M4 5h16v12H4zM8 21h8' : 'M13 2 4 14h7l-1 8 9-12h-7l1-8Z'} /></svg>
-                  <span>{scenarioLabel(language, key)}</span><small>{scenarioNoise(language, key)}</small>
-                </button>
-              ))}
-            </div>
-          </section>
-        </div>
+      <section className="status-grid" aria-label={tr(language, 'Current device status', '当前设备状态')}>
+        {statusSensors.map((sensor) => (
+          <article className="status-card" key={sensor.label}>
+            <div className="status-card-heading"><span>{sensor.label}</span><span className="status-badge is-idle">{temperatureStatus(sensor.value, language)}</span></div>
+            <strong>{sensor.value === '--' ? '--' : `${sensor.value}°C`}</strong>
+            <small>{isZh ? '当前温度' : 'CURRENT TEMPERATURE'}</small>
+          </article>
+        ))}
+        <article className="status-card">
+          <div className="status-card-heading"><span>EC / {isZh ? '风扇' : 'FANS'}</span><span className={`status-badge ${props.running ? 'is-normal' : 'is-idle'}`}>{props.running ? (isZh ? '接管中' : 'ACTIVE') : (isZh ? '系统托管' : 'SYSTEM MANAGED')}</span></div>
+          <strong>{props.cpuFanRpm === '--' ? '--' : props.cpuFanRpm.toLocaleString()}<span className="status-unit"> RPM</span></strong>
+          <small>{isZh ? 'CPU 风扇 · ' : 'CPU FAN · '}{props.constantSpeedEnabled ? `${props.constantSpeed}%` : (isZh ? '自动曲线' : 'AUTO CURVE')}</small>
+        </article>
+        <article className="status-card">
+          <div className="status-card-heading"><span>NUCtool.dll / {isZh ? '性能' : 'PROFILE'}</span><span className={`status-badge ${actualProfile === 1 || actualProfile === 2 || actualProfile === 3 ? 'is-normal' : 'is-idle'}`}>{actualProfile === 1 || actualProfile === 2 || actualProfile === 3 ? (isZh ? '已读回' : 'READ BACK') : (isZh ? '未知' : 'UNKNOWN')}</span></div>
+          <strong className="status-profile-value">{profileText}</strong>
+          <small>{isZh ? '厂商性能预设' : 'VENDOR PERFORMANCE PROFILE'}</small>
+        </article>
+      </section>
 
-        <div className="thermal-column thermal-column-right">
-          <section className="aurora-device-stack" aria-label={tr(language, 'Device status', '设备状态')}>
-            <div className="aurora-stack-heading"><h3>{isZh ? '设备状态' : 'DEVICE STATUS'}</h3></div>
-            {[
-              { label: 'CPU', value: cpuTemp, accent: 'cyan' },
-              { label: 'GPU', value: gpuTemp, accent: 'violet' },
-            ].map((device) => (
-              <div className={`aurora-device-card is-compact ${device.accent}`} key={device.label}>
-                <div className="aurora-device-icon">◈</div>
-                <div className="aurora-device-name"><strong>{device.label}</strong><small>{device.value === '--' ? '--' : `${device.value}°C`}</small></div>
-                <div className="aurora-device-state"><small>{isZh ? '温度状态' : 'THERMAL STATE'}</small><strong>{tr(language, temperatureState(device.value).label, temperatureState(device.value).label === 'NORMAL' ? '正常' : temperatureState(device.value).label === 'WARM' ? '偏热' : temperatureState(device.value).label === 'HOT' ? '高温' : '等待中')}</strong></div>
-                <i className="aurora-device-meter"><b /></i>
-              </div>
-            ))}
-          </section>
-          <section className="thermal-panel thermal-history-panel">
-            <div className="thermal-panel-heading compact"><div><h3>{isZh ? '温度趋势' : 'TEMPERATURE HISTORY'}</h3><p><i className="cpu-dot" />CPU <i className="gpu-dot" />GPU</p></div></div>
-            <div className="thermal-chart-wrap">
-              <span className="chart-y-label y100">100°</span><span className="chart-y-label y75">75°</span><span className="chart-y-label y50">50°</span><span className="chart-y-label y25">25°</span>
-              <svg viewBox="0 0 280 140" preserveAspectRatio="none" aria-label={tr(language, 'CPU and GPU temperature history chart', 'CPU 与 GPU 温度历史图表')}>
-                <defs><linearGradient id="cpuHistoryFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#e42f35" stopOpacity=".26" /><stop offset="1" stopColor="#e42f35" stopOpacity="0" /></linearGradient></defs>
-                <path className="chart-grid-lines" d="M0 20H280M0 56H280M0 92H280M0 128H280" />
-                <polyline className="gpu-history-line" points={chartLines.gpu} />
-                <polyline className="cpu-history-line" points={chartLines.cpu} />
-              </svg>
-              <div className="thermal-chart-time"><span>60M</span><span>45M</span><span>30M</span><span>15M</span><span>{isZh ? '当前' : 'NOW'}</span></div>
-            </div>
-          </section>
+      <div className="overview-section-heading">
+        <div><span>{isZh ? '控制模块' : 'CONTROL MODULES'}</span><h3>{isZh ? '选择要调整的设备部分' : 'CHOOSE WHAT TO ADJUST'}</h3></div>
+        <p>{isZh ? '风扇与设备性能互不联动' : 'Fan control and device performance remain independent'}</p>
+      </div>
+      <div className="overview-route-grid">
+        <button className="overview-route-card" type="button" onClick={() => onNavigate('fan')}>
+          <span className="overview-route-icon"><NavFanIcon /></span>
+          <span className="overview-route-copy">
+            <small>EC / {isZh ? '风扇控制' : 'FAN CONTROL'}</small>
+            <strong>{scenarioLabel(language, props.selectedScenario)}</strong>
+            <span>{props.constantSpeedEnabled ? (isZh ? `固定输出 ${props.constantSpeed}%` : `Fixed output ${props.constantSpeed}%`) : (isZh ? '按温度曲线自动调速' : 'Automatic temperature curve')}</span>
+          </span>
+          <span className="overview-route-metrics"><b>{props.cpuFanRpm === '--' ? '--' : props.cpuFanRpm.toLocaleString()}</b> CPU RPM<br /><b>{props.gpuFanRpm === '--' ? '--' : props.gpuFanRpm.toLocaleString()}</b> GPU RPM</span>
+          <i aria-hidden="true">→</i>
+        </button>
+        <button className="overview-route-card" type="button" onClick={() => onNavigate('performance')}>
+          <span className="overview-route-icon"><ModeIcon index={actualProfile === 3 ? 0 : actualProfile === 2 ? 1 : 2} /></span>
+          <span className="overview-route-copy">
+            <small>NUCTOOL.DLL / {isZh ? '性能控制' : 'PERFORMANCE CONTROL'}</small>
+            <strong>{profileText}</strong>
+            <span>{isZh ? '省电 · 平衡 · 性能；基准模式独立开关' : 'Power save · balanced · performance; benchmark is separate'}</span>
+          </span>
+          <span className="overview-route-metrics"><b>{actualProfile ?? '--'}</b><br />PROFILE</span>
+          <i aria-hidden="true">→</i>
+        </button>
+      </div>
 
-        </div>
-      </main>
-
+      <section className="overview-system-panel" aria-label={isZh ? '控制通道状态' : 'Control channel status'}>
+        <div><span>EC / {isZh ? '风扇通道' : 'FAN CHANNEL'}</span><strong>{props.running ? (isZh ? '由 NUCtool 接管' : 'NUCtool active') : (isZh ? '系统托管' : 'System managed')}</strong></div>
+        <div><span>NUCtool.dll / {isZh ? '设备性能' : 'DEVICE PERFORMANCE'}</span><strong>{props.authorBridgeAvailable ? (isZh ? 'DLL 文件已校验' : 'DLL file verified') : (isZh ? 'DLL 文件不可用' : 'DLL file unavailable')}</strong></div>
+        <div><span>WINDOWS / {isZh ? '电源方案' : 'POWER SCHEME'}</span><strong>{props.systemPowerParameters?.scheme_alias || (isZh ? '尚未读回' : 'Not read back')}</strong></div>
+      </section>
     </div>
   );
 };

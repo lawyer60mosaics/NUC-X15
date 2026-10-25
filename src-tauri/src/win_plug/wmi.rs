@@ -18,6 +18,15 @@ use crate::plug::diagnostics::app_log;
 const RPC_C_AUTHN_WINNT: u32 = 10;
 const RPC_C_AUTHZ_NONE: u32 = 0;
 
+fn model_id_from_name(model: &str) -> Option<i64> {
+    let normalized = model.trim().to_ascii_uppercase();
+    match normalized.as_str() {
+        "LAPKC71E" | "LAPKC71F" => Some(0),
+        "LAPAC71H" => Some(1),
+        _ => None,
+    }
+}
+
 pub fn wmi_security() {
     // SAFETY: These are process/thread COM initialization calls. All pointers are null
     // or supplied by the Windows crate, and failures are intentionally ignored because
@@ -220,14 +229,14 @@ pub fn get_model() -> i64 {
         Ok(con) => con,
         Err(e) => {
             eprintln!("WMI COM initialization failed while reading model: {:?}", e);
-            return 0;
+            return -1;
         }
     };
     let wmi_con = match WMIConnection::new(com_con) {
         Ok(con) => con,
         Err(e) => {
             eprintln!("WMI connection failed while reading model: {:?}", e);
-            return 0;
+            return -1;
         }
     };
     let results: Vec<LaptopInfo> =
@@ -235,20 +244,16 @@ pub fn get_model() -> i64 {
             Ok(results) => results,
             Err(e) => {
                 eprintln!("WMI model query failed: {:?}", e);
-                return 0;
+                return -1;
             }
         };
 
     if let Some(laptop) = results.into_iter().next() {
         eprintln!("Manufacturer: {}", laptop.manufacturer.blue());
         eprintln!("Model: {}", laptop.model.blue());
-        match laptop.model.as_str() {
-            "LAPKC71F" => 0,
-            "LAPAC71H" => 1,
-            _ => 0,
-        }
+        model_id_from_name(&laptop.model).unwrap_or(-1)
     } else {
-        0
+        -1
     }
 }
 
@@ -309,4 +314,19 @@ pub fn run_wmi_helper_loop() -> ! {
         let _ = stdout.flush();
     }
     std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model_id_from_name;
+
+    #[test]
+    fn model_mapping_rejects_unsupported_hardware() {
+        assert_eq!(model_id_from_name("LAPKC71E"), Some(0));
+        assert_eq!(model_id_from_name("LAPKC71F"), Some(0));
+        assert_eq!(model_id_from_name("LAPAC71H"), Some(1));
+        assert_eq!(model_id_from_name(" lapkc71e "), Some(0));
+        assert_eq!(model_id_from_name("UNKNOWN"), None);
+        assert_eq!(model_id_from_name(""), None);
+    }
 }

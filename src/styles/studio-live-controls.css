@@ -1,0 +1,82 @@
+.nss-color-actions button {
+  width: 29px;
+  height: 29px;
+  border: 2px solid #bdd4df;
+  border-radius: 4px;
+  padding: 0;
+  box-shadow: 0 2px 6px #0005;
+}
+
+.nss-color-actions button:hover:not(:disabled),
+.nss-color-actions button:focus-visible {
+  outline: 2px solid #08b5e9;
+  outline-offset: 2px;
+}
+
+.nss-display-summary {
+  flex: 1;
+  padding: 12px 13px;
+  border-left: 1px solid #3f5b6e;
+  color: #cfe1e9;
+  line-height: 1.55;
+}
+
+.nss-display-summary strong,
+.nss-display-summary h2 {
+  color: #e6f3f8;
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 6px;
+}
+
+.nss-display-summary p {
+  margin: 6px 0;
+}
+
+.nss-display-summary small {
+  color: #a9c2d0;
+}
+
+.nss-perf-row strong {
+  font-size: 14px;
+  color: #e5f1f5;
+  font-weight: 500;
+}
+
+.nss-lightbar-editor .nss-slider-row {
+  display: flex;
+}
+
+.nss-lightbar-editor .nss-slider-row span {
+  width: 46px;
+}
+
+.nss-lightbar-editor .nss-slider-row input {
+  min-width: 60px;
+}
+
+.nss-lightbar-editor .nss-slider-row output {
+  width: 38px;
+}
+
+.nss-lightbar-editor p {
+  color: #c8dbe4;
+  line-height: 1.5;
+}
+
+.nss-lightbar-overview {
+  padding: 18px 17px 10px;
+}
+
+.nss-lightbar-overview span {
+  width: 110px;
+}
+
+@media (max-width: 1100px) {
+  .nss-lightbar-editor {
+    grid-template-columns: 1fr 1fr;
+  }
+  .nss-lightbar-editor > div:last-child {
+    grid-column: 1 / -1;
+  }
+}

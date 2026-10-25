@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invokeBackend } from './useTauriApi';
+import type { FanScenarioId } from '../types/appSettings';
 
 export interface CurvePoint {
   temperature: number;
@@ -10,9 +11,11 @@ export type TimeThemeMode = 'auto' | 'day' | 'night';
 
 export const CURVE_TEMPS = [35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85];
 
-export const SCENARIOS: Record<string, {
+export const SCENARIOS: Record<FanScenarioId, {
   mode: string;
   label: string;
+  detailZh: string;
+  detailEn: string;
   tags: string[];
   ramp: number;
   hysteresis: number;
@@ -21,34 +24,40 @@ export const SCENARIOS: Record<string, {
   cpuCurve: number[];
   gpuCurve: number[];
 }> = {
-  silent: {
-    mode: 'silent',
-    label: 'SILENT',
-    tags: ['NOISE: LOW', 'THERMALS: MEDIUM'],
+  quiet: {
+    mode: 'custom',
+    label: 'QUIET',
+    detailZh: '仅设置 EC 风扇曲线 · 低噪优先',
+    detailEn: 'EC fan curve only · prioritize low noise',
+    tags: ['NOISE: LOW', 'FAN LIMIT: 50%'],
     ramp: 2,
-    hysteresis: 8,
-    cpuCap: 45,
-    gpuCap: 40,
-    cpuCurve: [20, 20, 24, 28, 33, 38, 42, 45, 45, 45, 45],
-    gpuCurve: [20, 20, 23, 27, 32, 36, 39, 40, 40, 40, 40],
+    hysteresis: 6,
+    cpuCap: 50,
+    gpuCap: 50,
+    cpuCurve: [20, 20, 24, 29, 34, 39, 44, 48, 50, 50, 50],
+    gpuCurve: [20, 20, 23, 28, 33, 39, 44, 48, 50, 50, 50],
   },
   balanced: {
-    mode: 'office',
+    mode: 'custom',
     label: 'BALANCED',
-    tags: ['NOISE: MEDIUM-LOW', 'THERMALS: MEDIUM-HIGH'],
-    ramp: 3,
-    hysteresis: 5,
-    cpuCap: 70,
-    gpuCap: 65,
-    cpuCurve: [20, 24, 29, 36, 44, 52, 60, 66, 70, 70, 70],
-    gpuCurve: [20, 22, 27, 34, 42, 49, 56, 61, 65, 65, 65],
+    detailZh: '仅设置 EC 风扇曲线 · 噪音与散热平衡',
+    detailEn: 'EC fan curve only · balance noise and cooling',
+    tags: ['NOISE: MEDIUM', 'COOLING: BALANCED'],
+    ramp: 5,
+    hysteresis: 4,
+    cpuCap: 80,
+    gpuCap: 80,
+    cpuCurve: [25, 28, 34, 42, 50, 58, 66, 72, 76, 79, 80],
+    gpuCurve: [25, 29, 36, 44, 52, 60, 68, 74, 78, 80, 80],
   },
-  performance: {
-    mode: 'performance',
-    label: 'PERFORMANCE',
-    tags: ['NOISE: HIGH', 'THERMALS: EXTREME'],
-    ramp: 8,
-    hysteresis: 2,
+  cooling: {
+    mode: 'custom',
+    label: 'COOLING',
+    detailZh: '仅设置 EC 风扇曲线 · 散热优先',
+    detailEn: 'EC fan curve only · prioritize cooling',
+    tags: ['NOISE: HIGH', 'COOLING: HIGH'],
+    ramp: 10,
+    hysteresis: 1,
     cpuCap: 100,
     gpuCap: 100,
     cpuCurve: [35, 40, 48, 58, 68, 76, 84, 90, 95, 98, 100],
@@ -56,16 +65,48 @@ export const SCENARIOS: Record<string, {
   },
 };
 
-const FAN_ZERO_RECOVERY_TEMP = 60;
-const FAN_ZERO_RECOVERY_STRIKES = 2;
+function normalizeFanScenario(scenarioName: string): FanScenarioId {
+  switch (scenarioName.trim().toLowerCase()) {
+    case 'balanced':
+      return 'balanced';
+    case 'cooling':
+    case 'game':
+    case 'gaming':
+    case 'performance':
+    case 'max':
+    case 'benchmark':
+    case 'bench':
+      return 'cooling';
+    default:
+      return 'quiet';
+  }
+}
+
+function curveForScenario(scenarioName: string, side: 'cpu' | 'gpu'): CurvePoint[] {
+  const scenario = SCENARIOS[normalizeFanScenario(scenarioName)] || SCENARIOS.quiet;
+  const speeds = side === 'cpu' ? scenario.cpuCurve : scenario.gpuCurve;
+  return CURVE_TEMPS.map((temperature, index) => ({ temperature, speed: speeds[index] }));
+}
+
+function loadedCurve(value: unknown): CurvePoint[] | null {
+  if (!Array.isArray(value)) return null;
+  const points = value
+    .map((point: any) => ({
+      temperature: Number(point?.temperature),
+      speed: Number(point?.speed),
+    }))
+    .filter((point) => Number.isFinite(point.temperature) && Number.isFinite(point.speed))
+    .sort((left, right) => left.temperature - right.temperature);
+  return points.length >= 2 ? points : null;
+}
 
 export function useFanControl(showToast: (msg: string) => void, getAppSettings?: () => unknown) {
   const [running, setRunning] = useState(false);
-  const [selectedScenario, setSelectedScenario] = useState('balanced');
+  const [selectedScenario, setSelectedScenarioState] = useState<FanScenarioId>('quiet');
   
   // 曲线数据采用独立的 state 存储，允许进行拖拽微调
-  const [cpuCurve, setCpuCurve] = useState<CurvePoint[]>([]);
-  const [gpuCurve, setGpuCurve] = useState<CurvePoint[]>([]);
+  const [cpuCurve, setCpuCurve] = useState<CurvePoint[]>(() => curveForScenario('quiet', 'cpu'));
+  const [gpuCurve, setGpuCurve] = useState<CurvePoint[]>(() => curveForScenario('quiet', 'gpu'));
 
   // 恒速设置
   const [constantSpeedEnabled, setConstantSpeedEnabled] = useState(false);
@@ -87,26 +128,25 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
   const [droppedSamples, setDroppedSamples] = useState(0);
   const [lastSampledTime, setLastSampledTime] = useState('--');
 
-  const cpuZeroStrikes = useRef(0);
-  const gpuZeroStrikes = useRef(0);
+  const fanStallNotice = useRef('');
   const scenarioRuntimeInFlight = useRef(false);
   const scenarioRuntimeQueued = useRef(false);
 
   // 初始化风扇曲线为预设场景数据
   const resetCurveToScenario = useCallback((scenarioName: string) => {
-    const sc = SCENARIOS[scenarioName] || SCENARIOS.balanced;
-    setCpuCurve(CURVE_TEMPS.map((t, idx) => ({ temperature: t, speed: sc.cpuCurve[idx] })));
-    setGpuCurve(CURVE_TEMPS.map((t, idx) => ({ temperature: t, speed: sc.gpuCurve[idx] })));
+    setCpuCurve(curveForScenario(scenarioName, 'cpu'));
+    setGpuCurve(curveForScenario(scenarioName, 'gpu'));
   }, []);
 
-  // 当选择场景更改时，初始化对应的曲线
-  useEffect(() => {
-    resetCurveToScenario(selectedScenario);
-  }, [selectedScenario, resetCurveToScenario]);
+  const setSelectedScenario = useCallback((scenarioName: string) => {
+    const scenario = normalizeFanScenario(scenarioName);
+    setSelectedScenarioState(scenario);
+    resetCurveToScenario(scenario);
+  }, [resetCurveToScenario]);
 
   // 生成传递给底层的 Payload
   const buildPayload = useCallback((overrides?: { timeThemeMode?: TimeThemeMode; startupTakeoverEnabled?: boolean }) => {
-    const sc = SCENARIOS[selectedScenario] || SCENARIOS.balanced;
+    const sc = SCENARIOS[selectedScenario] || SCENARIOS.quiet;
     const resolvedThemeMode = overrides?.timeThemeMode ?? timeThemeMode;
     const resolvedStartupTakeover = overrides?.startupTakeoverEnabled ?? startupTakeoverEnabled;
     return {
@@ -140,7 +180,7 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
       },
       monitor: {
         sample_interval_ms: 1000,
-        log_enabled: true,
+        log_enabled: false,
       },
       appearance: {
         time_theme_mode: resolvedThemeMode,
@@ -148,36 +188,6 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
       app_settings: getAppSettings?.() ?? undefined,
     };
   }, [selectedScenario, cpuCurve, gpuCurve, constantSpeedEnabled, constantSpeed, startupTakeoverEnabled, timeThemeMode, getAppSettings]);
-
-  // 风扇卡转保护看门狗逻辑
-  const assessFanSafety = useCallback(async (tempC: number, fanRpm: number, isCpu: boolean) => {
-    if (!running) {
-      if (isCpu) cpuZeroStrikes.current = 0;
-      else gpuZeroStrikes.current = 0;
-      return;
-    }
-
-    if (tempC >= FAN_ZERO_RECOVERY_TEMP && fanRpm <= 0) {
-      if (isCpu) {
-        cpuZeroStrikes.current += 1;
-        if (cpuZeroStrikes.current >= FAN_ZERO_RECOVERY_STRIKES) {
-          showToast('Warning: CPU fan stall detected. Restarting the recovery watchdog...');
-          await invokeBackend('force_fan_sentinel_restart', { fanData: buildPayload() });
-          cpuZeroStrikes.current = 0;
-        }
-      } else {
-        gpuZeroStrikes.current += 1;
-        if (gpuZeroStrikes.current >= FAN_ZERO_RECOVERY_STRIKES) {
-          showToast('Warning: GPU fan stall detected. Restarting the recovery watchdog...');
-          await invokeBackend('force_fan_sentinel_restart', { fanData: buildPayload() });
-          gpuZeroStrikes.current = 0;
-        }
-      }
-    } else {
-      if (isCpu) cpuZeroStrikes.current = 0;
-      else gpuZeroStrikes.current = 0;
-    }
-  }, [buildPayload, running, showToast]);
 
   // 热更新风扇策略逻辑
   const applyScenarioRuntime = useCallback(async () => {
@@ -217,20 +227,31 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
     }
   }, [buildPayload, running, showToast]);
 
+  const releaseControl = useCallback(async () => {
+    if (!running) return;
+    setBusy(true);
+    setBusyLabel('RELEASING EC CONTROL');
+    try {
+      await invokeBackend('stop_fan_control');
+      setRunning(false);
+      setActorState('idle');
+      setActorStateText('IDLE');
+      setCpuTemp('--');
+      setGpuTemp('--');
+      setCpuFanRpm('--');
+      setGpuFanRpm('--');
+    } finally {
+      setBusy(false);
+    }
+  }, [running]);
+
   // 一键开关风扇控制
   const toggleControl = useCallback(async () => {
     setBusy(true);
     setBusyLabel(running ? 'RELEASING EC CONTROL' : 'STARTING EC CONTROL');
     try {
       if (running) {
-        await invokeBackend('stop_fan_control');
-        setRunning(false);
-        setActorState('idle');
-        setActorStateText('IDLE');
-        setCpuTemp('--');
-        setGpuTemp('--');
-        setCpuFanRpm('--');
-        setGpuFanRpm('--');
+        await releaseControl();
       } else {
         const payload = buildPayload();
         await invokeBackend('start_fan_control', { fanData: payload });
@@ -243,7 +264,7 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
     } finally {
       setBusy(false);
     }
-  }, [running, buildPayload, showToast]);
+  }, [running, buildPayload, releaseControl, showToast]);
 
   // 定时轮询风扇运行状态快照
   const pollSnapshot = useCallback(async () => {
@@ -268,16 +289,27 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
       setLastSampledTime(snap.sampled_at_ms ? new Date(Number(snap.sampled_at_ms)).toLocaleTimeString() : '--');
 
       if (!snap.running) {
+        fanStallNotice.current = '';
         setActorState('idle');
         setActorStateText('IDLE');
         return;
       }
 
-      // 执行防卡死看门狗评估
-      if (tempLeft > 0) assessFanSafety(tempLeft, fanLeft, true);
-      if (tempRight > 0) assessFanSafety(tempRight, fanRight, false);
+      // 卡转判断与满速保护由后端 EC Actor 执行；前端只显示后端状态，
+      // 避免窗口隐藏或前端重复重启控制线程影响保护。
+      const stalled = [
+        snap.cpu_fan_stalled ? 'CPU' : '',
+        snap.gpu_fan_stalled ? 'GPU' : '',
+      ].filter(Boolean).join(' + ');
+      if (stalled && stalled !== fanStallNotice.current) {
+        showToast(`Warning: ${stalled} fan stall detected. EC is forcing both fans to full speed.`);
+      }
+      fanStallNotice.current = stalled;
 
-      if (snap.dropped_samples > 0) {
+      if (stalled) {
+        setActorState('danger');
+        setActorStateText('FAN STALL · FULL SPEED');
+      } else if (snap.dropped_samples > 0) {
         setActorState('warn');
         setActorStateText('DROPPED SAMPLES');
       } else {
@@ -288,7 +320,7 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
       setActorState('danger');
       setActorStateText('CORE UNAVAILABLE');
     }
-  }, [assessFanSafety]);
+  }, [showToast]);
 
   // 配置加载与保存
   const saveConfig = useCallback(async () => {
@@ -354,12 +386,12 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
       const fanData = await invokeBackend('load_fan_config');
       if (fanData && fanData.control) {
         const configuredDefaultScenario = String(fanData.app_settings?.default_scenario || '').trim();
-        const configuredMode = configuredDefaultScenario || String(fanData.control.mode || fanData.control.preset || 'balanced');
-        const mode = configuredMode === 'office' || configuredMode === 'standard' ? 'balanced'
-          : configuredMode === 'gaming' ? 'performance' : configuredMode;
-        if (SCENARIOS[mode]) {
-          setSelectedScenario(mode);
-        }
+        const configuredMode = configuredDefaultScenario || String(fanData.control.mode || fanData.control.preset || 'quiet');
+        setSelectedScenario(normalizeFanScenario(configuredMode));
+        const savedCpuCurve = loadedCurve(fanData.left_fan);
+        const savedGpuCurve = loadedCurve(fanData.right_fan);
+        if (savedCpuCurve) setCpuCurve(savedCpuCurve);
+        if (savedGpuCurve) setGpuCurve(savedGpuCurve);
         setConstantSpeedEnabled(!!fanData.control.constant_speed_enabled);
         setConstantSpeed(Number(fanData.control.constant_speed ?? 50));
         setStartupTakeoverEnabled(!!fanData.control.startup_takeover_enabled);
@@ -372,7 +404,7 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
     } finally {
       setBusy(false);
     }
-  }, [showToast]);
+  }, [setSelectedScenario, showToast]);
 
   // 定时执行轮询监控
   useEffect(() => {
@@ -430,6 +462,7 @@ export function useFanControl(showToast: (msg: string) => void, getAppSettings?:
     droppedSamples,
     lastSampledTime,
     toggleControl,
+    releaseControl,
     applyScenarioRuntime,
     saveConfig,
     loadConfig,

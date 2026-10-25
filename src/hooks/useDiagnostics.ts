@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { invokeBackend, useTauriEvent } from './useTauriApi';
+import { invokeBackend } from './useTauriApi';
 
 export interface DiagnosticSummary {
   path: string;
@@ -34,16 +34,6 @@ export interface DiagnosticIssue {
   message: string;
 }
 
-export interface LogEntry {
-  id: string;
-  time: string;
-  tag: string;
-  msg: string;
-  level: 'info' | 'warn' | 'error';
-}
-
-const MAX_FRONTEND_LOGS = 80;
-
 export function useDiagnostics(
   showToast: (msg: string) => void,
   getFanPayload?: () => any,
@@ -52,8 +42,6 @@ export function useDiagnostics(
   // 诊断汇总
   const [summary, setSummary] = useState<DiagnosticSummary | null>(null);
 
-  // 运行日志队列
-  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('RUNNING DIAGNOSTICS');
 
@@ -88,40 +76,6 @@ export function useDiagnostics(
     }
   }, [getFanPayload, refreshSummary, showToast]);
 
-  // 新增日志行
-  const pushLog = useCallback((level: string, tag: string, msg: string) => {
-    const time = new Date().toLocaleTimeString();
-    const id = `${Date.now()}-${Math.random()}`;
-    const entry: LogEntry = {
-      id,
-      time,
-      tag: tag || 'SYSTEM',
-      msg: msg || '',
-      level: (level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info') as any
-    };
-
-    setLogs((prev) => {
-      const next = [...prev, entry];
-      if (next.length > MAX_FRONTEND_LOGS) {
-        return next.slice(next.length - MAX_FRONTEND_LOGS);
-      }
-      return next;
-    });
-  }, []);
-
-  // 自动接收后台发出的诊断日志广播
-  useTauriEvent('diagnostic_log', (payload: any) => {
-    if (payload) {
-      pushLog(payload.level || 'info', payload.event || 'IPC', payload.msg || '');
-    }
-  });
-
-  useTauriEvent('diag', (payload: any) => {
-    if (payload) {
-      pushLog(payload.level || 'info', payload.event || 'IPC', payload.msg || '');
-    }
-  });
-
   // 后台向 Rust 定期发送心跳，告知前端处于活动状态，心跳时间 3 秒
   useEffect(() => {
     const heartbeatTimer = setInterval(async () => {
@@ -141,10 +95,6 @@ export function useDiagnostics(
       }
     }, 3000);
 
-    // 默认推入两条初始化日志
-    pushLog('info', 'console', 'NUCtool React frontend loaded successfully.');
-    pushLog('info', 'console', 'Recovery WMI subprocess heartbeat connected.');
-
     refreshSummary();
     // 定时轮询诊断文件摘要
     const refreshVisibleSummary = () => {
@@ -158,14 +108,12 @@ export function useDiagnostics(
       clearInterval(diagTimer);
       document.removeEventListener('visibilitychange', refreshVisibleSummary);
     };
-  }, [getFanRunning, refreshSummary, pushLog]);
+  }, [getFanRunning, refreshSummary]);
 
   return {
     summary,
-    logs,
     busy,
     busyLabel,
-    pushLog,
     refreshSummary,
     runSentinelTest,
   };

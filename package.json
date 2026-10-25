@@ -1,11 +1,11 @@
 {
   "name": "nuctool-frontend",
-  "version": "1.0.3",
+  "version": "26.9.19",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
@@ -18,19 +18,15 @@
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-updater": "^2.9.0",
-    "chart.js": "^4.5.1",
-    "chartjs-plugin-dragdata": "^2.2.5",
-    "react": "^18.3.1",
-    "react-chartjs-2": "^5.2.0",
-    "react-dom": "^18.3.1"
+    "element-plus": "^2.14.7",
+    "vue": "^3.5.44"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.6",
     "@types/node": "^20.11.0",
-    "@types/react": "^18.2.48",
-    "@types/react-dom": "^18.2.18",
-    "@vitejs/plugin-react": "^4.2.1",
+    "@vitejs/plugin-vue": "^6.0.10",
     "typescript": "^5.3.3",
-    "vite": "^5.0.12"
+    "vite": "^5.0.12",
+    "vue-tsc": "^3.3.13"
   }
 }

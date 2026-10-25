@@ -46,6 +46,26 @@ pub struct SystemPowerAction {
 pub struct SystemPowerApplyResult {
     pub mode: String,
     pub actions: Vec<SystemPowerAction>,
+    pub ok: bool,
+    pub failed_actions: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SystemPowerParameters {
+    pub scheme_guid: String,
+    pub scheme_alias: String,
+    pub ac_processor_max: u8,
+    pub dc_processor_max: u8,
+    pub ac_boost_mode: u8,
+    pub dc_boost_mode: u8,
+    pub ac_energy_preference: u8,
+    pub dc_energy_preference: u8,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PowerSourceStatus {
+    pub source: String,
+    pub battery_percent: Option<u8>,
 }
 
 #[derive(Debug, Serialize)]
@@ -186,7 +206,21 @@ fn short_detail(detail: &str, limit: usize) -> String {
 
 #[cfg(windows)]
 fn args_summary(args: &[&str]) -> String {
-    let summarized: Vec<String> = args.iter().map(|arg| short_detail(arg, 80)).collect();
+    let mut redact_next = false;
+    let summarized: Vec<String> = args
+        .iter()
+        .map(|arg| {
+            if redact_next {
+                redact_next = false;
+                "<PowerShell script redacted>".to_string()
+            } else if *arg == "-Command" {
+                redact_next = true;
+                (*arg).to_string()
+            } else {
+                short_detail(arg, 80)
+            }
+        })
+        .collect();
     format!("{:?}", summarized)
 }
 
@@ -225,6 +259,11 @@ fn summarize_system_power_result(
 }
 
 #[cfg(windows)]
+fn system_power_result_ok(result: &Result<SystemPowerApplyResult, String>) -> bool {
+    result.as_ref().map(|value| value.ok).unwrap_or(false)
+}
+
+#[cfg(windows)]
 fn run_program(program: &str, args: &[&str]) -> Result<String, String> {
     run_program_timeout(program, args, Duration::from_secs(4))
 }
@@ -237,6 +276,11 @@ fn run_program_timeout(program: &str, args: &[&str], timeout: Duration) -> Resul
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if program.eq_ignore_ascii_case("powershell") {
+        if let Some(sdk_dir) = vendor::bundled_uniwill_sdk_dir() {
+            command.env("NUCTOOL_BUNDLED_UNIWILL_SDK_DIR", sdk_dir);
+        }
+    }
     let mut child = command
         .spawn()
         .map_err(|e| format!("failed to start {}: {}", program, e))?;
@@ -306,6 +350,83 @@ fn run_powercfg(args: &[&str]) -> Result<String, String> {
 }
 
 #[cfg(windows)]
+fn parse_powercfg_current_pair(output: &str, setting: &str) -> Result<(u8, u8), String> {
+    let values: Vec<u8> = output
+        .split("0x")
+        .skip(1)
+        .filter_map(|part| {
+            let digits: String = part
+                .chars()
+                .take_while(|character| character.is_ascii_hexdigit())
+                .collect();
+            u32::from_str_radix(&digits, 16)
+                .ok()
+                .and_then(|value| u8::try_from(value).ok())
+        })
+        .collect();
+    if values.len() < 2 {
+        return Err(format!(
+            "powercfg {} did not contain AC/DC current values",
+            setting
+        ));
+    }
+    Ok((values[values.len() - 2], values[values.len() - 1]))
+}
+
+#[cfg(windows)]
+fn parse_active_scheme_guid(output: &str) -> String {
+    output
+        .split_whitespace()
+        .find(|token| {
+            token.len() == 36 && token.chars().filter(|character| *character == '-').count() == 4
+        })
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+#[cfg(windows)]
+fn active_scheme_alias(guid: &str) -> &'static str {
+    match guid {
+        "381b4222-f694-41f0-9685-ff5bb260df2e" => "SCHEME_BALANCED",
+        "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c" => "SCHEME_MIN",
+        "a1841308-3541-4fab-bc81-f71556f20b4a" => "SCHEME_MAX",
+        _ => "CUSTOM_SCHEME",
+    }
+}
+
+#[cfg(windows)]
+fn read_system_power_parameters() -> Result<SystemPowerParameters, String> {
+    let scheme_guid = parse_active_scheme_guid(&run_powercfg(&["/getactivescheme"])?);
+    let (ac_processor_max, dc_processor_max) = parse_powercfg_current_pair(
+        &run_powercfg(&[
+            "/query",
+            "SCHEME_CURRENT",
+            "SUB_PROCESSOR",
+            "PROCTHROTTLEMAX",
+        ])?,
+        "PROCTHROTTLEMAX",
+    )?;
+    let (ac_boost_mode, dc_boost_mode) = parse_powercfg_current_pair(
+        &run_powercfg(&["/query", "SCHEME_CURRENT", "SUB_PROCESSOR", "PERFBOOSTMODE"])?,
+        "PERFBOOSTMODE",
+    )?;
+    let (ac_energy_preference, dc_energy_preference) = parse_powercfg_current_pair(
+        &run_powercfg(&["/query", "SCHEME_CURRENT", "SUB_PROCESSOR", "PERFEPP"])?,
+        "PERFEPP",
+    )?;
+    Ok(SystemPowerParameters {
+        scheme_alias: active_scheme_alias(&scheme_guid).to_string(),
+        scheme_guid,
+        ac_processor_max,
+        dc_processor_max,
+        ac_boost_mode,
+        dc_boost_mode,
+        ac_energy_preference,
+        dc_energy_preference,
+    })
+}
+
+#[cfg(windows)]
 fn uniwill_profile_for_mode(mode: &str) -> Option<&'static str> {
     match mode {
         "performance" => Some("Performance"),
@@ -330,6 +451,9 @@ function HasSdkFiles($path) {
 }
 
 $sdkCandidates = @()
+if (-not [string]::IsNullOrWhiteSpace($env:NUCTOOL_BUNDLED_UNIWILL_SDK_DIR)) {
+  $sdkCandidates += [pscustomobject]@{ source = 'bundled-resource'; path = $env:NUCTOOL_BUNDLED_UNIWILL_SDK_DIR }
+}
 if (-not [string]::IsNullOrWhiteSpace($env:NUCTOOL_UNIWILL_SDK_DIR)) {
   $sdkCandidates += [pscustomobject]@{ source = 'env:NUCTOOL_UNIWILL_SDK_DIR'; path = $env:NUCTOOL_UNIWILL_SDK_DIR }
 }
@@ -361,28 +485,25 @@ foreach ($candidate in $sdkCandidates) {
   }
 }
 if ([string]::IsNullOrWhiteSpace($sdkPath)) {
-  throw 'Uniwill SDK files not found for profile apply'
+  $checkedPaths = ($sdkCandidates | ForEach-Object { $_.path }) -join '; '
+  throw "Uniwill SDK files not found for profile apply. Checked: $checkedPaths"
 }
 
 Add-Type -Path (Join-Path $sdkPath 'Prism.dll')
 Add-Type -Path (Join-Path $sdkPath 'UniwillSdkClient.dll')
-$callback = [UniwillSdkClient.Models.UniwillCallbackHandler]::new($null)
-$context = [System.ServiceModel.InstanceContext]::new($callback)
-$binding = [System.ServiceModel.NetHttpBinding]::new()
-$binding.WebSocketSettings.TransportUsage = [System.ServiceModel.Channels.WebSocketTransportUsage]::Always
-$address = [System.ServiceModel.EndpointAddress]::new('ws://localhost:58594/UniwillService')
-$client = [UniwillSdkClient.UniwillService.UniwillServiceClient]::new($context, $binding, $address)
+function New-UniwillClient {
+  $callback = [UniwillSdkClient.Models.UniwillCallbackHandler]::new($null)
+  $context = [System.ServiceModel.InstanceContext]::new($callback)
+  $binding = [System.ServiceModel.NetHttpBinding]::new()
+  $binding.WebSocketSettings.TransportUsage = [System.ServiceModel.Channels.WebSocketTransportUsage]::Always
+  $address = [System.ServiceModel.EndpointAddress]::new('ws://localhost:58594/UniwillService')
+  return [UniwillSdkClient.UniwillService.UniwillServiceClient]::new($context, $binding, $address)
+}
+
+$target = [UniwillSdkClient.UniwillService.ProfileIndex]::$profileName
+$client = New-UniwillClient
 try {
-  $target = [UniwillSdkClient.UniwillService.ProfileIndex]::$profileName
   $client.ApplyProfile($target)
-  $state = $client.GetCurrentState()
-  [pscustomobject]@{
-    appliedProfile = $target.ToString()
-    selectedProfile = $state.SelectedProfileIndex.ToString()
-    benchmarkMode = $state.BenchmarkMode
-    passiveCooling = $state.PassiveCooling
-    sdkSource = $sdkSource
-  } | ConvertTo-Json -Compress
 } finally {
   if ($client.State -eq [System.ServiceModel.CommunicationState]::Faulted) {
     $client.Abort()
@@ -390,6 +511,39 @@ try {
     $client.Close()
   }
 }
+
+# ApplyProfile can invalidate the original WCF session on this service.
+# Reconnect before verifying instead of treating that expected disconnect as a failed apply.
+Start-Sleep -Milliseconds 300
+$selectedProfile = $null
+$benchmarkMode = $null
+$passiveCooling = $null
+$verificationError = $null
+$verifyClient = New-UniwillClient
+try {
+  try {
+    $state = $verifyClient.GetCurrentState()
+    $selectedProfile = $state.SelectedProfileIndex.ToString()
+    $benchmarkMode = $state.BenchmarkMode
+    $passiveCooling = $state.PassiveCooling
+  } catch {
+    $verificationError = $_.Exception.Message
+  }
+} finally {
+  if ($verifyClient.State -eq [System.ServiceModel.CommunicationState]::Faulted) {
+    $verifyClient.Abort()
+  } else {
+    $verifyClient.Close()
+  }
+}
+[pscustomobject]@{
+  appliedProfile = $target.ToString()
+  selectedProfile = $selectedProfile
+  benchmarkMode = $benchmarkMode
+  passiveCooling = $passiveCooling
+  verificationError = $verificationError
+  sdkSource = $sdkSource
+} | ConvertTo-Json -Compress
 "#
     .replace("__PROFILE__", profile);
     run_program_timeout(
@@ -884,6 +1038,46 @@ pub async fn get_display_refresh_status() -> Result<DisplayRefreshStatus, String
 
 #[cfg(windows)]
 #[tauri::command]
+pub async fn get_system_power_parameters() -> Result<SystemPowerParameters, String> {
+    app_log("command", "debug", "get_system_power_parameters.start", "");
+    let result = tauri::async_runtime::spawn_blocking(read_system_power_parameters)
+        .await
+        .map_err(|e| format!("system power parameters task failed: {}", e))?;
+    app_log(
+        "command",
+        if result.is_ok() { "info" } else { "warn" },
+        "get_system_power_parameters.done",
+        format!("{:?}", result),
+    );
+    result
+}
+
+#[cfg(windows)]
+#[tauri::command]
+pub async fn get_power_source() -> Result<PowerSourceStatus, String> {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut status = SYSTEM_POWER_STATUS::default();
+        unsafe { GetSystemPowerStatus(&mut status) }
+            .map_err(|e| format!("failed to read Windows power source: {}", e))?;
+        let source = match status.ACLineStatus {
+            1 => "ac",
+            0 => "battery",
+            _ => "unknown",
+        };
+        Ok(PowerSourceStatus {
+            source: source.to_string(),
+            battery_percent: (status.BatteryLifePercent != 255)
+                .then_some(status.BatteryLifePercent),
+        })
+    })
+    .await
+    .map_err(|e| format!("power source task failed: {}", e))?
+}
+
+#[cfg(windows)]
+#[tauri::command]
 pub async fn set_display_refresh_rate(
     app: AppHandle,
     hz: u32,
@@ -1238,8 +1432,15 @@ pub async fn apply_system_power_profile(
             );
         }
 
+        let failed_actions = actions
+            .iter()
+            .filter(|action| !action.ok)
+            .map(|action| action.name.clone())
+            .collect::<Vec<_>>();
         Ok(SystemPowerApplyResult {
             mode: normalized,
+            ok: failed_actions.is_empty(),
+            failed_actions,
             actions,
         })
     })
@@ -1253,13 +1454,17 @@ pub async fn apply_system_power_profile(
     let (action_count, failed_count, failed_actions) = summarize_system_power_result(&result);
     app_log(
         "command",
-        if result.is_ok() { "info" } else { "warn" },
+        if system_power_result_ok(&result) {
+            "info"
+        } else {
+            "warn"
+        },
         "apply_system_power_profile.done",
         format!(
             "elapsed_ms={} mode={} ok={} action_count={} failed_count={} failed_actions={}",
             started.elapsed().as_millis(),
             mode,
-            result.is_ok(),
+            system_power_result_ok(&result),
             action_count,
             failed_count,
             failed_actions
@@ -1275,6 +1480,18 @@ pub async fn apply_system_power_profile(
     _preserve_fan_control: Option<bool>,
 ) -> Result<SystemPowerApplyResult, String> {
     Err("System power profiles are currently implemented for Windows only".to_string())
+}
+
+#[tauri::command]
+#[cfg(unix)]
+pub async fn get_system_power_parameters() -> Result<SystemPowerParameters, String> {
+    Err("System power parameters are currently implemented for Windows only".to_string())
+}
+
+#[tauri::command]
+#[cfg(unix)]
+pub async fn get_power_source() -> Result<PowerSourceStatus, String> {
+    Err("Power source detection is currently implemented for Windows only".to_string())
 }
 
 #[tauri::command]
@@ -1452,5 +1669,13 @@ mod tests {
             || Ok(())
         )
         .is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_command_arguments_are_redacted_in_diagnostics() {
+        let summary = args_summary(&["-NoProfile", "-Command", "secret script body"]);
+        assert!(summary.contains("<PowerShell script redacted>"));
+        assert!(!summary.contains("secret script body"));
     }
 }

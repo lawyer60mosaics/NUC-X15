@@ -20,10 +20,19 @@ use crate::plug::{
 };
 
 pub fn get_config_dir() -> PathBuf {
+    config_base_dir().join("com.nuc.x15.fan.cyear.app")
+}
+
+fn config_base_dir() -> PathBuf {
     dirs::config_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(env::temp_dir)
-        .join("com.nuc.x15.fan.cyear.app")
+}
+
+fn legacy_config_file_path() -> PathBuf {
+    config_base_dir()
+        .join("com.cyear.nuctool")
+        .join("fan_config.json")
 }
 
 pub fn get_config_file_path() -> Result<PathBuf, String> {
@@ -69,14 +78,25 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
         _ => "independent".to_string(),
     };
 
+    // Old releases represented workload/performance labels as EC fan modes.
+    // Keep stored curves, but normalize these modes to custom so benchmark or
+    // performance naming can never activate an EC-specific workload mode.
+    if matches!(
+        &fan_data.control.mode,
+        FanControlMode::Gaming | FanControlMode::Performance | FanControlMode::Benchmark
+    ) {
+        fan_data.control.mode = FanControlMode::Custom;
+        fan_data.control.preset = "custom".to_string();
+    }
+
     let legacy_preset = fan_data.control.preset.to_lowercase();
     let mut mode_from_legacy_preset = false;
     if fan_data.control.mode == FanControlMode::Office {
         let resolved_mode = match legacy_preset.as_str() {
             "silent" => FanControlMode::Silent,
-            "performance" | "gaming" => FanControlMode::Gaming,
-            "fullspeed" => FanControlMode::Performance,
-            "benchmark" | "bench" | "stress" => FanControlMode::Benchmark,
+            "performance" | "gaming" | "fullspeed" | "benchmark" | "bench" | "stress" => {
+                FanControlMode::Custom
+            }
             "custom" => FanControlMode::Custom,
             _ => FanControlMode::Office,
         };
@@ -104,6 +124,17 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
         if fan_data.right_fan.is_empty() {
             fan_data.right_fan = right_defaults;
         }
+    }
+
+    if let Some(power_curves) = &mut fan_data.power_curves {
+        power_curves.ac_left = sanitize_curve(&power_curves.ac_left, "插电左");
+        power_curves.ac_right = sanitize_curve(&power_curves.ac_right, "插电右");
+        power_curves.dc_left = sanitize_curve(&power_curves.dc_left, "电池左");
+        power_curves.dc_right = sanitize_curve(&power_curves.dc_right, "电池右");
+        if power_curves.ac_left.is_empty() { power_curves.ac_left = fan_data.left_fan.clone(); }
+        if power_curves.ac_right.is_empty() { power_curves.ac_right = fan_data.right_fan.clone(); }
+        if power_curves.dc_left.is_empty() { power_curves.dc_left = fan_data.left_fan.clone(); }
+        if power_curves.dc_right.is_empty() { power_curves.dc_right = fan_data.right_fan.clone(); }
     }
 
     let control_mode = fan_data.control.control_mode.to_lowercase();
@@ -180,49 +211,56 @@ pub fn normalize_fan_data(mut fan_data: FanData) -> FanData {
     }
     fan_data.control.gpu_linkage_boost = fan_data.control.gpu_linkage_boost.clamp(0, 30);
 
-    fan_data.control.min_speed = fan_data.control.min_speed.clamp(0, 60);
     if fan_data.control.min_speed < 0 {
         fan_data.control.min_speed = MIN_FAN_SPEED;
+    } else {
+        fan_data.control.min_speed = fan_data.control.min_speed.clamp(0, 60);
     }
 
-    fan_data.control.zero_rpm_threshold = fan_data
-        .control
-        .zero_rpm_threshold
-        .clamp(MIN_TEMP_LIMIT, MAX_TEMP_LIMIT);
     if fan_data.control.zero_rpm_threshold <= 0 {
         fan_data.control.zero_rpm_threshold = DEFAULT_ZERO_RPM_THRESHOLD;
+    } else {
+        fan_data.control.zero_rpm_threshold = fan_data
+            .control
+            .zero_rpm_threshold
+            .clamp(MIN_TEMP_LIMIT, MAX_TEMP_LIMIT);
     }
 
-    fan_data.alerts.cpu.threshold = fan_data.alerts.cpu.threshold.clamp(50, MAX_TEMP_LIMIT);
     if fan_data.alerts.cpu.threshold <= 0 {
         fan_data.alerts.cpu.threshold = DEFAULT_CPU_ALERT_THRESHOLD;
+    } else {
+        fan_data.alerts.cpu.threshold = fan_data.alerts.cpu.threshold.clamp(50, MAX_TEMP_LIMIT);
     }
 
-    fan_data.alerts.gpu.threshold = fan_data.alerts.gpu.threshold.clamp(50, MAX_TEMP_LIMIT);
     if fan_data.alerts.gpu.threshold <= 0 {
         fan_data.alerts.gpu.threshold = DEFAULT_GPU_ALERT_THRESHOLD;
+    } else {
+        fan_data.alerts.gpu.threshold = fan_data.alerts.gpu.threshold.clamp(50, MAX_TEMP_LIMIT);
     }
 
     fan_data.alerts.recover_delta = fan_data.alerts.recover_delta.clamp(1, 10);
 
-    fan_data.alerts.cpu.actions.confirm_times =
-        fan_data.alerts.cpu.actions.confirm_times.clamp(1, 10);
     if fan_data.alerts.cpu.actions.confirm_times == 0 {
         fan_data.alerts.cpu.actions.confirm_times = DEFAULT_ALERT_CONFIRM_TIMES;
+    } else {
+        fan_data.alerts.cpu.actions.confirm_times =
+            fan_data.alerts.cpu.actions.confirm_times.clamp(1, 10);
     }
 
-    fan_data.alerts.gpu.actions.confirm_times =
-        fan_data.alerts.gpu.actions.confirm_times.clamp(1, 10);
     if fan_data.alerts.gpu.actions.confirm_times == 0 {
         fan_data.alerts.gpu.actions.confirm_times = DEFAULT_ALERT_CONFIRM_TIMES;
+    } else {
+        fan_data.alerts.gpu.actions.confirm_times =
+            fan_data.alerts.gpu.actions.confirm_times.clamp(1, 10);
     }
 
-    fan_data.monitor.sample_interval_ms = fan_data.monitor.sample_interval_ms.clamp(
-        MIN_MONITOR_SAMPLE_INTERVAL_MS,
-        MAX_MONITOR_SAMPLE_INTERVAL_MS.min(1000),
-    );
     if fan_data.monitor.sample_interval_ms == 0 {
         fan_data.monitor.sample_interval_ms = DEFAULT_MONITOR_SAMPLE_INTERVAL_MS.clamp(500, 1000);
+    } else {
+        fan_data.monitor.sample_interval_ms = fan_data.monitor.sample_interval_ms.clamp(
+            MIN_MONITOR_SAMPLE_INTERVAL_MS,
+            MAX_MONITOR_SAMPLE_INTERVAL_MS.min(1000),
+        );
     }
 
     fan_data.appearance.time_theme_mode = match fan_data
@@ -252,13 +290,53 @@ pub fn saved_startup_takeover_enabled() -> bool {
         return false;
     }
     read_fan_data(&config_path)
-        .map(|fan_data| fan_data.control.startup_takeover_enabled)
+        .map(|fan_data| {
+            fan_data.control.startup_takeover_enabled && uses_direct_fan_backend(&fan_data)
+        })
         .unwrap_or(false)
+}
+
+pub fn uses_direct_fan_backend(fan_data: &FanData) -> bool {
+    let _ = fan_data;
+    true
+}
+
+pub fn saved_startup_run_mode() -> String {
+    let Ok(config_path) = get_config_file_path() else {
+        return "silent".to_string();
+    };
+    if !config_path.exists() {
+        return "silent".to_string();
+    }
+
+    read_fan_data(&config_path)
+        .ok()
+        .and_then(|fan_data| {
+            fan_data
+                .app_settings
+                .get("startup_run_mode")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_lowercase)
+        })
+        .filter(|mode| mode == "silent" || mode == "full")
+        .unwrap_or_else(|| "silent".to_string())
 }
 
 pub fn load_saved_fan_data() -> Result<FanData, String> {
     let config_path = get_config_file_path()?;
     if !config_path.exists() {
+        let legacy_path = legacy_config_file_path();
+        if legacy_path.exists() {
+            let migrated = read_fan_data(&legacy_path)?;
+            write_fan_data(&config_path, &migrated)?;
+            let backup_path = legacy_path.with_file_name("fan_config.beta3.json");
+            if !backup_path.exists() {
+                fs::copy(&legacy_path, &backup_path)
+                    .map_err(|e| format!("备份旧版配置失败: {}", e))?;
+            }
+            println!("已迁移 Beta.3 配置: {:?} -> {:?}", legacy_path, config_path);
+            return Ok(migrated);
+        }
         let defaults = default_fan_data();
         write_fan_data(&config_path, &defaults)?;
         return Ok(defaults);
@@ -396,6 +474,27 @@ pub async fn export_monitor_log_csv(destination_path: String) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plug::struct_set::{FanPoint, PowerSourceFanCurves};
+
+    #[test]
+    fn power_source_curves_are_sanitized_and_missing_side_uses_main_curve() {
+        let mut data = FanData {
+            left_fan: vec![FanPoint { temperature: 50, speed: 40 }],
+            right_fan: vec![FanPoint { temperature: 50, speed: 45 }],
+            power_curves: Some(PowerSourceFanCurves {
+                ac_left: vec![FanPoint { temperature: 50, speed: 200 }],
+                dc_right: vec![FanPoint { temperature: 50, speed: -20 }],
+                ..PowerSourceFanCurves::default()
+            }),
+            ..FanData::default()
+        };
+        data = normalize_fan_data(data);
+        let curves = data.power_curves.expect("AC/DC curves retained");
+        assert_eq!(curves.ac_left[0].speed, 100);
+        assert_eq!(curves.ac_right[0].speed, 45);
+        assert_eq!(curves.dc_left[0].speed, 40);
+        assert_eq!(curves.dc_right[0].speed, 0);
+    }
 
     #[test]
     fn normalize_keeps_valid_time_theme_mode() {
@@ -415,5 +514,29 @@ mod tests {
         let normalized = normalize_fan_data(fan_data);
 
         assert_eq!(normalized.appearance.time_theme_mode, "auto");
+    }
+
+    #[test]
+    fn legacy_vendor_backend_migrates_to_direct_fan_takeover() {
+        let mut fan_data = FanData::default();
+        assert!(uses_direct_fan_backend(&fan_data));
+
+        fan_data.app_settings = serde_json::json!({ "fan_control_backend": "nuc_service" });
+        assert!(uses_direct_fan_backend(&fan_data));
+    }
+
+    #[test]
+    fn beta3_config_shape_can_be_loaded_into_current_schema() {
+        let legacy = r#"{
+            "left_fan": [{"temperature": 40, "speed": 25}],
+            "right_fan": [{"temperature": 40, "speed": 30}]
+        }"#;
+
+        let parsed: FanData = serde_json::from_str(legacy).expect("Beta.3 JSON should parse");
+        let normalized = normalize_fan_data(parsed);
+
+        assert_eq!(normalized.left_fan[0].temperature, 40);
+        assert_eq!(normalized.right_fan[0].speed, 30);
+        assert_eq!(normalized.control.strategy, "independent");
     }
 }

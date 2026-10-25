@@ -227,19 +227,14 @@ fn summarize_diagnostic_lines(
                 match component {
                     // Heartbeats are normal liveness telemetry, not watchdog incidents.
                     "frontend_watchdog" => {
-                        entry.level == "warn"
-                            || entry.level == "error"
-                            || event == "reload"
+                        entry.level == "warn" || entry.level == "error" || event == "reload"
                     }
                     // Startup, healthy clears, and debug confirmation lines are lifecycle
                     // telemetry. Only warnings/errors represent a sentinel incident.
                     "fan_sentinel" | "external_sentinel" => {
                         entry.level == "warn" || entry.level == "error"
                     }
-                    _ => {
-                        event.starts_with("watchdog.")
-                            || event == "actor_hung.flagged"
-                    }
+                    _ => event.starts_with("watchdog.") || event == "actor_hung.flagged",
                 }
             })
             .unwrap_or_else(|| {

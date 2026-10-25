@@ -30,13 +30,14 @@ function buildVersion(now = new Date(), mode = granularity) {
   const minute = now.getMinutes();
 
   const major = year % 100;
-  const minor = month * 100 + day;
+  // MSI versions require each of the first two components to be <= 255.
+  // Keep the month readable and pack day/hour/minute into the patch component
+  // (maximum 65019), so date builds remain unique without breaking MSI.
+  const minor = month;
   const patch =
     mode === 'day'
-      ? 0
-      : mode === 'hour'
-        ? hour
-        : hour * 100 + minute;
+      ? day
+      : day * 2048 + hour * 64 + (mode === 'hour' ? 0 : minute);
 
   return {
     version: `${major}.${minor}.${patch}`,
@@ -124,7 +125,14 @@ try {
   execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
 
   if (!shouldFrontendOnly) {
-    execSync('npm run tauri:build', { cwd: ROOT, stdio: 'inherit' });
+    const hasUpdaterSigningKey = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY?.trim());
+    if (!hasUpdaterSigningKey) {
+      console.log('未提供更新包私钥：仅生成本地 NSIS/MSI 安装包，跳过更新包签名。');
+    }
+    const tauriBuildCommand = hasUpdaterSigningKey
+      ? 'npm run tauri:build'
+      : 'npm run tauri:build -- --config src-tauri/tauri.local-unsigned.conf.json';
+    execSync(tauriBuildCommand, { cwd: ROOT, stdio: 'inherit' });
   }
 
   const outputs = findBundleOutputs(build.version);

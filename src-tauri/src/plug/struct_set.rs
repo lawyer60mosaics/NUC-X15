@@ -100,6 +100,15 @@ fn ec_call_failed(value: i64) -> bool {
     value < 0 || value == EC_COMM_FAILURE
 }
 
+#[cfg(windows)]
+pub(crate) fn combine_ec_bytes(high: i64, low: i64) -> i64 {
+    if ec_call_failed(high) || ec_call_failed(low) {
+        -1
+    } else {
+        ((high & 0xFF) << 8) | (low & 0xFF)
+    }
+}
+
 /// 带重试的锁获取：用于关键操作（风扇模式切换、TDP 写入等）
 /// 普通风扇写入使用单次 try_lock（跳过一次写入可接受）
 fn acquire_hw_lock(max_attempts: u32) -> Option<std::sync::MutexGuard<'static, ()>> {
@@ -155,9 +164,9 @@ impl FanControlMode {
         match value.trim().to_lowercase().as_str() {
             "silent" => FanControlMode::Silent,
             "office" | "standard" | "balanced" => FanControlMode::Office,
-            "gaming" | "game" => FanControlMode::Gaming,
-            "performance" | "fullspeed" => FanControlMode::Performance,
-            "benchmark" | "bench" | "stress" => FanControlMode::Benchmark,
+            "gaming" | "game" | "performance" | "fullspeed" | "benchmark" | "bench" | "stress" => {
+                FanControlMode::Custom
+            }
             "custom" => FanControlMode::Custom,
             _ => FanControlMode::Office,
         }
@@ -333,11 +342,25 @@ impl Default for AppearanceConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct PowerSourceFanCurves {
+    #[serde(default)]
+    pub ac_left: Vec<FanPoint>,
+    #[serde(default)]
+    pub ac_right: Vec<FanPoint>,
+    #[serde(default)]
+    pub dc_left: Vec<FanPoint>,
+    #[serde(default)]
+    pub dc_right: Vec<FanPoint>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct FanData {
     #[serde(default)]
     pub left_fan: Vec<FanPoint>,
     #[serde(default)]
     pub right_fan: Vec<FanPoint>,
+    #[serde(default)]
+    pub power_curves: Option<PowerSourceFanCurves>,
     #[serde(default)]
     pub control: FanControlPolicy,
     #[serde(default)]
@@ -497,6 +520,8 @@ pub struct FanActorSnapshot {
     pub gpu_temp: Option<i64>,
     pub cpu_fan_rpm: Option<i64>,
     pub gpu_fan_rpm: Option<i64>,
+    pub cpu_fan_stalled: bool,
+    pub gpu_fan_stalled: bool,
     pub cpu_power_limit_w: Option<i64>,
     pub cpu_power_short_w: Option<i64>,
     pub gpu_power_limit_w: Option<i64>,
@@ -518,6 +543,8 @@ impl Default for FanActorSnapshot {
             gpu_temp: None,
             cpu_fan_rpm: None,
             gpu_fan_rpm: None,
+            cpu_fan_stalled: false,
+            gpu_fan_stalled: false,
             cpu_power_limit_w: None,
             cpu_power_short_w: None,
             gpu_power_limit_w: None,
@@ -544,10 +571,15 @@ pub struct ApiFan {
 #[cfg(windows)]
 impl ApiFan {
     pub fn try_init() -> Result<Self, String> {
-        let (r_fan_l1, r_fan_l2, r_fan_r1, r_fan_r2) = if *MODEL_ID == 1 {
-            (R_FAN_L1, R_FAN_L2, R_FAN_R1, R_FAN_R2)
-        } else {
-            (R_FAN_R1, R_FAN_R2, R_FAN_L1, R_FAN_L2)
+        let (r_fan_l1, r_fan_l2, r_fan_r1, r_fan_r2) = match *MODEL_ID {
+            1 => (R_FAN_L1, R_FAN_L2, R_FAN_R1, R_FAN_R2),
+            0 => (R_FAN_R1, R_FAN_R2, R_FAN_L1, R_FAN_L2),
+            model_id => {
+                return Err(format!(
+                    "unsupported hardware or model detection failed (model_id={})",
+                    model_id
+                ));
+            }
         };
         Ok(ApiFan {
             r_fan_l1,
@@ -564,14 +596,16 @@ impl ApiFan {
         WmiClient::global().send_wmi_set(R_TEMP_R) & 0xFF
     }
     pub fn get_fan_l(&self) -> i64 {
-        (WmiClient::global().send_wmi_set(self.r_fan_l1) & 0xFF) << 8
-            | WmiClient::global().send_wmi_set(self.r_fan_l2)
+        let high = WmiClient::global().send_wmi_set(self.r_fan_l1);
+        let low = WmiClient::global().send_wmi_set(self.r_fan_l2);
+        combine_ec_bytes(high, low)
     }
     pub fn get_fan_r(&self) -> i64 {
-        (WmiClient::global().send_wmi_set(self.r_fan_r1) & 0xFF) << 8
-            | WmiClient::global().send_wmi_set(self.r_fan_r2)
+        let high = WmiClient::global().send_wmi_set(self.r_fan_r1);
+        let low = WmiClient::global().send_wmi_set(self.r_fan_r2);
+        combine_ec_bytes(high, low)
     }
-    fn _set_fan(&self, l: i64, r: i64) {
+    fn _set_fan(&self, l: i64, r: i64) -> bool {
         // 风扇写入使用 try_lock：在极端并发场景下跳过一次写入影响可控
         let _guard = match HW_ACCESS_LOCK.try_lock() {
             Ok(g) => g,
@@ -580,51 +614,51 @@ impl ApiFan {
                     "⚠️ HW_ACCESS_LOCK 争用（风扇写入），跳过本次写入 L={} R={}",
                     l, r
                 );
-                return;
+                return false;
             }
         };
         // l/r 范围 0-200，用 {:02X} 保证2位十六进制（00-C8），超出时 clamp 保护
         let l = l.clamp(0, 200);
         let r = r.clamp(0, 200);
-        let _ = WmiClient::global().send_wmi_set(&format!("0x0000000000{:02X}1809", l));
-        let _ = WmiClient::global().send_wmi_set(&format!("0x0000000000{:02X}1804", r));
+        let left_out = WmiClient::global().send_wmi_set(&format!("0x0000000000{:02X}1809", l));
+        let right_out = WmiClient::global().send_wmi_set(&format!("0x0000000000{:02X}1804", r));
+        !ec_call_failed(left_out) && !ec_call_failed(right_out)
     }
     /// MAX speed 200
     pub fn set_fan(&self, l: i64, r: i64) -> bool {
-        let _ = if *MODEL_ID == 1 {
-            &self._set_fan(l, r)
+        if *MODEL_ID == 1 {
+            self._set_fan(l, r)
         } else {
-            &self._set_fan(r, l)
-        };
-        true
+            self._set_fan(r, l)
+        }
     }
     pub fn set_fan_auto(&self) -> bool {
         let Some(_guard) = acquire_hw_lock(10) else {
             println!("❌ set_fan_auto 失败：无法获取硬件锁");
             return false;
         };
-        let _ = WmiClient::global().send_wmi_set(W_FAN_RESET);
-        true
+        let out = WmiClient::global().send_wmi_set(W_FAN_RESET);
+        !ec_call_failed(out)
     }
     pub fn set_fan_control(&self) -> bool {
         let Some(_guard) = acquire_hw_lock(10) else {
             println!("❌ set_fan_control 失败：无法获取硬件锁");
             return false;
         };
-        if *MODEL_ID == 1 {
-            WmiClient::global().send_wmi_set(W_FAN_AC71H_TURBO);
+        let out = if *MODEL_ID == 1 {
+            WmiClient::global().send_wmi_set(W_FAN_AC71H_TURBO)
         } else {
-            WmiClient::global().send_wmi_set(W_FAN_KC71F_TURBO);
-        }
-        true
+            WmiClient::global().send_wmi_set(W_FAN_KC71F_TURBO)
+        };
+        !ec_call_failed(out)
     }
     /// 1 - control, 2 - auto
     pub fn get_fan_mode(&self) -> i64 {
         let out = WmiClient::global().send_wmi_set(R_FAN_MODE);
         println!("MODE: {}", out);
-        if out <= 0 {
-            return 1;
-        } // 异常不管了
+        if ec_call_failed(out) {
+            return 0;
+        }
         if out == 27664 || out == 27648 {
             2
         } else {
@@ -814,7 +848,7 @@ impl ApiFan {
             );
         }
 
-        cpu_ok
+        cpu_ok && gpu_ok
     }
     pub fn set_cpu_tdp(&self, cpu1: i64, cpu2: i64) -> bool {
         app_log(
@@ -885,16 +919,16 @@ impl ApiFan {
             println!("❌ set_ac_led_color_y 失败：无法获取硬件锁");
             return false;
         };
-        let _ = WmiClient::global().send_wmi_set(W_AC_LED_COLOR_Y);
-        true
+        let out = WmiClient::global().send_wmi_set(W_AC_LED_COLOR_Y);
+        !ec_call_failed(out)
     }
     pub fn set_ac_led_color_n(&self) -> bool {
         let Some(_guard) = acquire_hw_lock(3) else {
             println!("❌ set_ac_led_color_n 失败：无法获取硬件锁");
             return false;
         };
-        let _ = WmiClient::global().send_wmi_set(W_AC_LED_COLOR_N);
-        true
+        let out = WmiClient::global().send_wmi_set(W_AC_LED_COLOR_N);
+        !ec_call_failed(out)
     }
     #[allow(dead_code)]
     pub fn set_dc_led_color_y(&self) -> bool {
@@ -905,8 +939,8 @@ impl ApiFan {
                 return false;
             }
         };
-        let _ = WmiClient::global().send_wmi_set(W_DC_LED_COLOR_Y);
-        true
+        let out = WmiClient::global().send_wmi_set(W_DC_LED_COLOR_Y);
+        !ec_call_failed(out)
     }
     #[allow(dead_code)]
     pub fn set_dc_led_color_n(&self) -> bool {
@@ -917,8 +951,8 @@ impl ApiFan {
                 return false;
             }
         };
-        let _ = WmiClient::global().send_wmi_set(W_DC_LED_COLOR_N);
-        true
+        let out = WmiClient::global().send_wmi_set(W_DC_LED_COLOR_N);
+        !ec_call_failed(out)
     }
     /// 0 - Error, 1 - off, 2 - on
     pub fn get_ac_led_color(&self) -> i64 {

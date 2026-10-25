@@ -3,15 +3,22 @@ import { invokeBackend } from './useTauriApi';
 
 export function useAutostart(showToast: (msg: string) => void) {
   const [autostartEnabled, setAutostartEnabledState] = useState(false);
+  const [autostartKnown, setAutostartKnown] = useState(false);
   const [autostartBusy, setAutostartBusy] = useState(false);
   const [autostartBusyLabel, setAutostartBusyLabel] = useState('CONFIGURING STARTUP');
 
   const refreshAutostart = useCallback(async () => {
+    setAutostartBusy(true);
+    setAutostartBusyLabel('READING STARTUP STATUS');
     try {
       const enabled = await invokeBackend('autostart_status');
       setAutostartEnabledState(!!enabled);
+      setAutostartKnown(true);
     } catch (e: any) {
+      setAutostartKnown(false);
       showToast(`Failed to read startup status: ${e.message || e}`);
+    } finally {
+      setAutostartBusy(false);
     }
   }, [showToast]);
 
@@ -22,6 +29,7 @@ export function useAutostart(showToast: (msg: string) => void) {
     try {
       const actual = await invokeBackend('autostart_set', { enable: enabled });
       setAutostartEnabledState(!!actual);
+      setAutostartKnown(true);
       showToast(enabled ? 'Launch at startup enabled.' : 'Launch at startup disabled.');
     } catch (e: any) {
       showToast(`Failed to configure startup: ${e.message || e}`);
@@ -37,6 +45,7 @@ export function useAutostart(showToast: (msg: string) => void) {
 
   return {
     autostartEnabled,
+    autostartKnown,
     autostartBusy,
     autostartBusyLabel,
     refreshAutostart,

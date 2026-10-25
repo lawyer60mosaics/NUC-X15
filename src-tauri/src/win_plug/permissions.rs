@@ -54,14 +54,31 @@ pub fn privilege_escalation() {
         );
         return;
     };
-    let path_str = path.to_string_lossy();
-    match ps.run(format!(r#"Start-Process "{}" -Verb RunAs"#, path_str).as_str()) {
+    let powershell_quote = |value: &str| format!("'{}'", value.replace('\'', "''"));
+    let path_arg = powershell_quote(&path.to_string_lossy());
+    let forwarded_args: Vec<String> = env::args_os()
+        .skip(1)
+        .map(|arg| powershell_quote(&arg.to_string_lossy()))
+        .collect();
+    let argument_clause = if forwarded_args.is_empty() {
+        String::new()
+    } else {
+        format!(" -ArgumentList @({})", forwarded_args.join(","))
+    };
+    let restart_script = format!(
+        "Start-Process -FilePath {}{} -Verb RunAs",
+        path_arg, argument_clause
+    );
+    match ps.run(restart_script.as_str()) {
         Ok(_) => {
             app_log(
                 "startup",
                 "info",
                 "privilege_restart.started",
-                "requested elevated restart",
+                format!(
+                    "requested elevated restart with {} forwarded arguments",
+                    forwarded_args.len()
+                ),
             );
             process::exit(0);
         }

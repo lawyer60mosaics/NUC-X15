@@ -1,0 +1,42 @@
+.system-battery > small {
+  display: block;
+  margin-top: 8px;
+  color: #a9c9d9;
+  line-height: 1.35;
+}
+
+.battery-status {
+  min-width: 0;
+}
+
+.battery-status small,
+.battery-status span {
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.battery-status .battery-conflict {
+  color: #ffbc89;
+}
+
+@media (min-width: 721px) {
+  .system-body {
+    grid-template-columns: minmax(160px, 30%) minmax(180px, 1fr) minmax(190px, 25%);
+  }
+}
+
+@media (min-width: 1101px) and (max-width: 1450px) {
+  .studio-dashboard {
+    height: auto;
+  }
+
+  .dashboard-top {
+    grid-template-columns: 1fr;
+    flex: none;
+  }
+
+  .system-card,
+  .performance-card {
+    min-height: 290px;
+  }
+}
