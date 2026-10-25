@@ -69,7 +69,7 @@ namespace NssWpfHost.Ec
             finally { _hardwareGate.Release(); }
         }
 
-        public async Task SetFanPercentAsync(int leftPercent, int rightPercent)
+        public async Task<bool> SetFanPercentAsync(int leftPercent, int rightPercent)
         {
             if (leftPercent < 0 || leftPercent > 100 || rightPercent < 0 || rightPercent > 100)
                 throw new ArgumentOutOfRangeException("Fan percentages must be between 0 and 100.");
@@ -84,21 +84,26 @@ namespace NssWpfHost.Ec
                 var gpuTemp = await ReadByteAsync(0x044F).ConfigureAwait(false);
                 if (cpuTemp < 1 || cpuTemp > 105 || gpuTemp < 1 || gpuTemp > 105)
                 {
-                    try { await ExecuteAsync("0x0000000000A00751").ConfigureAwait(false); } catch { }
-                    _manualRequested = false;
-                    throw new InvalidOperationException("温度读数无效，已请求交还 EC 自动控制，拒绝手动调速。");
+                    var autoRestoreRequested = false;
+                    try { autoRestoreRequested = !IsFailure(await _wmi.ExecuteAsync("0x0000000000A00751").ConfigureAwait(false)); }
+                    catch { }
+                    _manualRequested = !autoRestoreRequested;
+                    var recovery = autoRestoreRequested ? "已请求交还 EC 自动控制" : "交还 EC 自动控制请求失败，请手动重试";
+                    throw new InvalidOperationException("温度读数无效，拒绝手动调速；" + recovery + "。");
                 }
                 if (cpuTemp >= ThermalEmergencyC || gpuTemp >= ThermalEmergencyC)
                 {
                     await WriteBothFansAsync(model, 100, 100).ConfigureAwait(false);
-                    throw new InvalidOperationException("温度达到紧急阈值，已强制请求双风扇满速；请检查硬件温度。");
+                    return true;
                 }
+                var thermalOverride = cpuTemp >= ThermalBoostC || gpuTemp >= ThermalBoostC;
                 leftPercent = Math.Max(leftPercent, MinimumSafeSpeed((int)cpuTemp));
                 rightPercent = Math.Max(rightPercent, MinimumSafeSpeed((int)gpuTemp));
                 if (cpuTemp >= ThermalProtectC) leftPercent = 100;
                 if (gpuTemp >= ThermalProtectC) rightPercent = 100;
 
                 await WriteBothFansAsync(model, leftPercent, rightPercent).ConfigureAwait(false);
+                return thermalOverride;
             }
             finally { _hardwareGate.Release(); }
         }
@@ -107,7 +112,9 @@ namespace NssWpfHost.Ec
         {
                 var left = leftPercent * 2;
                 var right = rightPercent * 2;
-                if (model.Equals("LAPAC71H", StringComparison.OrdinalIgnoreCase))
+                // ApiFan.set_fan() swaps channels for model_id 0 (LAPKC71E/F),
+                // while LAPAC71H/model_id 1 keeps the requested left/right order.
+                if (!model.Equals("LAPAC71H", StringComparison.OrdinalIgnoreCase))
                 {
                     var swap = left;
                     left = right;
@@ -127,7 +134,7 @@ namespace NssWpfHost.Ec
                     var autoRestoreRequested = false;
                     try { autoRestoreRequested = !IsFailure(await _wmi.ExecuteAsync("0x0000000000A00751").ConfigureAwait(false)); }
                     catch { }
-                    _manualRequested = false;
+                    _manualRequested = !autoRestoreRequested;
                     var recovery = autoRestoreRequested ? "已请求恢复 EC 自动模式" : "恢复 EC 自动模式的请求也失败";
                     throw new InvalidOperationException("双风扇 EC 写入未完整成功；" + recovery + "。", writeError);
                 }

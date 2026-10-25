@@ -52,8 +52,10 @@ namespace NssWpfHost.Ec
         {
             try
             {
-                await _module.SetFanPercentAsync((int)Math.Round(LeftFan.Value), (int)Math.Round(RightFan.Value));
-                ActionStatus.Text = "风扇速度请求已发送；请读取当前状态观察 RPM 变化，EC 不提供该请求的确认读回。";
+                var temperatureLimited = await _module.SetFanPercentAsync((int)Math.Round(LeftFan.Value), (int)Math.Round(RightFan.Value));
+                ActionStatus.Text = temperatureLimited
+                    ? "温度保护已提高风扇请求值（紧急温度下请求双风扇满速）；请读取 RPM 观察变化，EC 不提供设定值确认读回。"
+                    : "风扇速度请求已发送；请读取当前状态观察 RPM 变化，EC 不提供设定值确认读回。";
             }
             catch (Exception error) { ActionStatus.Text = "风扇调速失败：" + error.Message; }
         }
