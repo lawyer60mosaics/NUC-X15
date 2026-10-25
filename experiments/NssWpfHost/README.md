@@ -11,11 +11,11 @@ $env:NSS_SOURCE_DIR = "C:\\path\\to\\extracted\\NucSoftwareStudio"
 dotnet run --project experiments/NssWpfHost/NssWpfHost.csproj
 ```
 
-The EC module can read fan/temperature registers, request manual control, request per-fan speed, and return control to EC auto. It runs WMI calls on a dedicated MTA worker and applies a 20% minimum, 78°C boost, 88°C protection, 95°C emergency behavior, and EC-auto recovery after invalid temperature or partial write failure. It requests administrator elevation, matching the current app's EC access requirement. Writes are marked as requests because the firmware does not provide a confirmed setpoint readback.
+The EC module can read fan/temperature registers, request manual control, request per-fan speed, run a default Office/Balance temperature curve, and return control to EC auto. It runs WMI calls on a dedicated MTA worker, refreshes real temperature/RPM readback during curve control, and applies profile interpolation, a 20% floor, 78°C boost, 88°C protection, 95°C emergency behavior, and two-sample high-temperature stall response. Invalid temperature and partial-write failures request EC auto recovery. It requests administrator elevation, matching the current app's EC access requirement. Writes are marked as requests because the firmware does not provide a confirmed setpoint readback.
 
 The original-module action loads only the display DLL and reads constructor dependency metadata. It deliberately does not instantiate the original module or view. Static inspection found module initialization calls the vendor client's `EnableDisplayModeManagement`; runtime side effects have not been independently validated. The view is compiled into WPF BAML resources and still needs original Prism registrations and services to render correctly.
 
-The Rust fan curve, stall monitor, watchdog/sentinel, sample filtering, and full recovery loop have not yet been ported. The manual EC module is a first integration milestone, not feature parity with the existing NUCtool fan controller.
+The Rust watchdog/sentinel, sensor filters, power-source-specific curves, custom curve editing, and complete recovery policy have not yet been ported. This provides a basic in-process EC curve controller, not feature parity with the existing NUCtool fan controller.
 
 ## Runtime requirements
 

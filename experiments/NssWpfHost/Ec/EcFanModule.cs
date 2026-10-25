@@ -25,8 +25,14 @@ namespace NssWpfHost.Ec
         private const int ThermalEmergencyC = 95;
         private readonly EcWmiSession _wmi = new EcWmiSession();
         private readonly SemaphoreSlim _hardwareGate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _curveLifecycleGate = new SemaphoreSlim(1, 1);
         private string _model;
         private bool _manualRequested;
+        private CancellationTokenSource _curveCancellation;
+        private Task _curveTask = Task.CompletedTask;
+        private volatile bool _curveRunning;
+
+        public bool IsCurveControlRunning => _curveRunning;
 
         public async Task<EcFanSnapshot> ReadSnapshotAsync()
         {
@@ -48,17 +54,21 @@ namespace NssWpfHost.Ec
                 Model = model,
                 CpuTemperatureC = checked((int)values[0]),
                 GpuTemperatureC = checked((int)values[1]),
-                LeftFanRpm = CombineFanBytes(values[2], values[3]),
-                RightFanRpm = CombineFanBytes(values[4], values[5]),
+                LeftFanRpm = NormalizeRpm(CombineFanBytes(values[2], values[3])),
+                RightFanRpm = NormalizeRpm(CombineFanBytes(values[4], values[5])),
                 RawMode = values[6]
             };
         }
 
         public async Task SetManualControlAsync()
         {
+            if (_curveRunning)
+                throw new InvalidOperationException("EC 温控曲线正在运行，请先停止曲线控制。");
             await _hardwareGate.WaitAsync().ConfigureAwait(false);
             try
             {
+                if (_curveRunning)
+                    throw new InvalidOperationException("EC 温控曲线正在运行，请先停止曲线控制。");
                 var model = await GetModelAsync().ConfigureAwait(false);
                 var payload = model.Equals("LAPAC71H", StringComparison.OrdinalIgnoreCase)
                     ? "0x0000000000400751"
@@ -69,14 +79,53 @@ namespace NssWpfHost.Ec
             finally { _hardwareGate.Release(); }
         }
 
-        public async Task<bool> SetFanPercentAsync(int leftPercent, int rightPercent)
+        public async Task StartCurveControlAsync(Action<string> statusChanged, Action<EcFanSnapshot> snapshotUpdated)
+        {
+            await _curveLifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_curveRunning) return;
+                await _curveTask.ConfigureAwait(false);
+                _curveCancellation?.Dispose();
+                _curveCancellation = null;
+
+                await SetManualControlAsync().ConfigureAwait(false);
+                _curveCancellation = new CancellationTokenSource();
+                _curveRunning = true;
+                _curveTask = RunCurveControlAsync(_curveCancellation.Token, statusChanged, snapshotUpdated);
+            }
+            finally { _curveLifecycleGate.Release(); }
+        }
+
+        public async Task StopCurveControlAsync()
+        {
+            await _curveLifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                _curveCancellation?.Cancel();
+                try { await _curveTask.ConfigureAwait(false); } catch { }
+                _curveCancellation?.Dispose();
+                _curveCancellation = null;
+                await ReturnToEcAutoAsync().ConfigureAwait(false);
+            }
+            finally { _curveLifecycleGate.Release(); }
+        }
+
+        public Task<bool> SetFanPercentAsync(int leftPercent, int rightPercent) =>
+            SetFanPercentCoreAsync(leftPercent, rightPercent, false);
+
+        private async Task<bool> SetFanPercentCoreAsync(int leftPercent, int rightPercent, bool fromCurve)
         {
             if (leftPercent < 0 || leftPercent > 100 || rightPercent < 0 || rightPercent > 100)
                 throw new ArgumentOutOfRangeException("Fan percentages must be between 0 and 100.");
+            if (_curveRunning && !fromCurve)
+                throw new InvalidOperationException("EC 温控曲线正在运行，请先停止曲线控制。");
 
             await _hardwareGate.WaitAsync().ConfigureAwait(false);
             try
             {
+                if (_curveRunning && !fromCurve)
+                    throw new InvalidOperationException("EC 温控曲线正在运行，请先停止曲线控制。");
                 if (!_manualRequested)
                     throw new InvalidOperationException("请先请求 EC 手动接管，再调整风扇速度。");
                 var model = await GetModelAsync().ConfigureAwait(false);
@@ -106,6 +155,148 @@ namespace NssWpfHost.Ec
                 return thermalOverride;
             }
             finally { _hardwareGate.Release(); }
+        }
+
+        private async Task RunCurveControlAsync(CancellationToken cancellationToken, Action<string> statusChanged,
+            Action<EcFanSnapshot> snapshotUpdated)
+        {
+            int? lastLeft = null;
+            int? lastRight = null;
+            var cpuZeroRpmSamples = 0;
+            var gpuZeroRpmSamples = 0;
+            var cpuRecoveredSamples = 0;
+            var gpuRecoveredSamples = 0;
+            var cpuStalled = false;
+            var gpuStalled = false;
+            statusChanged?.Invoke("EC 温控曲线已启动，使用平衡默认曲线。");
+
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var snapshot = await ReadSnapshotAsync().ConfigureAwait(false);
+                    snapshotUpdated?.Invoke(snapshot);
+                    if (!IsValidSensor(snapshot.CpuTemperatureC) || !IsValidSensor(snapshot.GpuTemperatureC))
+                    {
+                        statusChanged?.Invoke("温度传感器读数无效，停止曲线并请求 EC 自动模式。");
+                        break;
+                    }
+
+                    UpdateStallState(snapshot.CpuTemperatureC, snapshot.LeftFanRpm,
+                        ref cpuZeroRpmSamples, ref cpuRecoveredSamples, ref cpuStalled);
+                    UpdateStallState(snapshot.GpuTemperatureC, snapshot.RightFanRpm,
+                        ref gpuZeroRpmSamples, ref gpuRecoveredSamples, ref gpuStalled);
+
+                    var left = ProfileSpeed(snapshot.CpuTemperatureC, CpuOfficeCurve);
+                    var right = ProfileSpeed(snapshot.GpuTemperatureC, GpuOfficeCurve);
+                    left = ApplyThermalFloor(snapshot.CpuTemperatureC, left);
+                    right = ApplyThermalFloor(snapshot.GpuTemperatureC, right);
+                    var emergency = snapshot.CpuTemperatureC >= ThermalEmergencyC || snapshot.GpuTemperatureC >= ThermalEmergencyC;
+                    if (emergency || cpuStalled || gpuStalled)
+                    {
+                        left = 100;
+                        right = 100;
+                        statusChanged?.Invoke(emergency
+                            ? "达到紧急温度阈值，已请求双风扇满速。"
+                            : "检测到高温下风扇转速为零，已请求双风扇满速。请检查 RPM。 ");
+                    }
+
+                    if (!emergency && !cpuStalled && !gpuStalled)
+                    {
+                        left = Ramp(lastLeft, left, 10, 6);
+                        right = Ramp(lastRight, right, 10, 6);
+                        left = ApplyThermalFloor(snapshot.CpuTemperatureC, left);
+                        right = ApplyThermalFloor(snapshot.GpuTemperatureC, right);
+                    }
+
+                    if (lastLeft != left || lastRight != right)
+                    {
+                        await SetFanPercentCoreAsync(left, right, true).ConfigureAwait(false);
+                        lastLeft = left;
+                        lastRight = right;
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            catch (Exception error)
+            {
+                statusChanged?.Invoke("EC 温控循环出错：" + error.Message + "；正在请求恢复 EC 自动模式。");
+            }
+            finally
+            {
+                _curveRunning = false;
+                try { await ReturnToEcAutoAsync().ConfigureAwait(false); }
+                catch (Exception error) { statusChanged?.Invoke("恢复 EC 自动模式失败：" + error.Message); }
+                statusChanged?.Invoke("EC 温控曲线已停止。");
+            }
+        }
+
+        private static readonly (int Temperature, int Speed)[] CpuOfficeCurve =
+        {
+            (37, 20), (45, 20), (57, 46), (70, 62), (85, 70)
+        };
+
+        private static readonly (int Temperature, int Speed)[] GpuOfficeCurve =
+        {
+            (35, 20), (43, 20), (54, 42), (65, 57), (82, 65)
+        };
+
+        private static bool IsValidSensor(int temperature) => temperature >= 1 && temperature <= 105;
+
+        private static int ProfileSpeed(int temperature, (int Temperature, int Speed)[] curve)
+        {
+            if (temperature <= curve[0].Temperature) return curve[0].Speed;
+            for (var index = 1; index < curve.Length; index++)
+            {
+                var upper = curve[index];
+                if (temperature <= upper.Temperature)
+                {
+                    var lower = curve[index - 1];
+                    var deltaTemp = upper.Temperature - lower.Temperature;
+                    if (deltaTemp <= 0) return Math.Max(lower.Speed, upper.Speed);
+                    var interpolated = lower.Speed + (upper.Speed - lower.Speed) *
+                        (temperature - lower.Temperature) / deltaTemp;
+                    return Math.Max(MinimumFanPercent, interpolated);
+                }
+            }
+            return Math.Max(MinimumFanPercent, curve[curve.Length - 1].Speed);
+        }
+
+        private static int ApplyThermalFloor(int temperature, int requested)
+        {
+            if (temperature >= ThermalProtectC) return 100;
+            if (temperature >= ThermalBoostC)
+                return Math.Max(requested, Math.Min(100, 60 + (temperature - ThermalBoostC) * 3));
+            return Math.Max(MinimumFanPercent, requested);
+        }
+
+        private static int Ramp(int? current, int target, int rampUp, int rampDown)
+        {
+            if (!current.HasValue) return target;
+            if (target > current.Value) return Math.Min(target, current.Value + rampUp);
+            return Math.Max(target, current.Value - rampDown);
+        }
+
+        private static void UpdateStallState(int temperature, int rpm, ref int zeroSamples,
+            ref int recoveredSamples, ref bool stalled)
+        {
+            if (temperature >= 60 && rpm <= 0)
+            {
+                zeroSamples++;
+                recoveredSamples = 0;
+                if (zeroSamples >= 2) stalled = true;
+            }
+            else
+            {
+                zeroSamples = 0;
+                if (rpm > 0)
+                {
+                    recoveredSamples++;
+                    if (recoveredSamples >= 2) stalled = false;
+                }
+                else recoveredSamples = 0;
+            }
         }
 
         private async Task WriteBothFansAsync(string model, int leftPercent, int rightPercent)
@@ -147,7 +338,7 @@ namespace NssWpfHost.Ec
             return MinimumFanPercent;
         }
 
-        public async Task ReturnToEcAutoAsync()
+        private async Task ReturnToEcAutoAsync()
         {
             await _hardwareGate.WaitAsync().ConfigureAwait(false);
             try
@@ -159,7 +350,7 @@ namespace NssWpfHost.Ec
             finally { _hardwareGate.Release(); }
         }
 
-        public Task ReleaseManualControlOnExitAsync() => ReturnToEcAutoAsync();
+        public Task ReleaseManualControlOnExitAsync() => StopCurveControlAsync();
 
         private async Task<long> ReadByteAsync(int address)
         {
@@ -207,6 +398,8 @@ namespace NssWpfHost.Ec
                 throw new InvalidOperationException("EC 风扇转速读取失败。");
             return checked((int)(((high & 0xFF) << 8) | (low & 0xFF)));
         }
+
+        private static int NormalizeRpm(int rpm) => rpm >= 0 && rpm <= 7000 ? rpm : 0;
 
         private static bool IsFailure(long value) => value < 0 || value == EcCommunicationFailure;
 

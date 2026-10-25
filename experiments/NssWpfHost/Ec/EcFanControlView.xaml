@@ -31,6 +31,10 @@
             <Slider x:Name="RightFan" Minimum="0" Maximum="100" Value="40" ValueChanged="FanValueChanged" />
           </DockPanel>
           <WrapPanel>
+            <Button Content="启动平衡温控曲线" Click="StartCurve" Padding="14,8" Margin="0,0,8,8" />
+            <Button Content="停止曲线并交还 EC" Click="StopCurve" Padding="14,8" Margin="0,0,8,8" />
+          </WrapPanel>
+          <WrapPanel>
             <Button Content="请求 EC 接管" Click="RequestManual" Padding="14,8" Margin="0,0,8,0" />
             <Button Content="应用风扇速度" Click="ApplySpeed" Padding="14,8" Margin="0,0,8,0" />
             <Button Content="交还 EC 自动" Click="ReturnToAuto" Padding="14,8" />

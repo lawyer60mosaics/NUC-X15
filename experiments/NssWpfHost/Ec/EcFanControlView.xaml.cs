@@ -31,11 +31,15 @@ namespace NssWpfHost.Ec
         {
             try
             {
-                var state = await _module.ReadSnapshotAsync();
-                Readback.Text = string.Format("{0} · CPU {1}°C / GPU {2}°C · 左风扇 {3} RPM / 右风扇 {4} RPM · EC 模式原始值 {5}",
-                    state.Model, state.CpuTemperatureC, state.GpuTemperatureC, state.LeftFanRpm, state.RightFanRpm, state.RawMode);
+                ShowSnapshot(await _module.ReadSnapshotAsync());
             }
             catch (Exception error) { Readback.Text = "硬件读回失败：" + error.Message; }
+        }
+
+        private void ShowSnapshot(EcFanSnapshot state)
+        {
+            Readback.Text = string.Format("{0} · CPU {1}°C / GPU {2}°C · 左风扇 {3} RPM / 右风扇 {4} RPM · EC 模式原始值 {5}",
+                state.Model, state.CpuTemperatureC, state.GpuTemperatureC, state.LeftFanRpm, state.RightFanRpm, state.RawMode);
         }
 
         private async void RequestManual(object sender, RoutedEventArgs e)
@@ -46,6 +50,27 @@ namespace NssWpfHost.Ec
                 ActionStatus.Text = "已向 EC 发送手动接管请求；硬件状态尚未确认。";
             }
             catch (Exception error) { ActionStatus.Text = "EC 接管失败：" + error.Message; }
+        }
+
+        private async void StartCurve(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                await _module.StartCurveControlAsync(
+                    message => Dispatcher.BeginInvoke(new Action(() => ActionStatus.Text = message)),
+                    state => Dispatcher.BeginInvoke(new Action(() => ShowSnapshot(state))));
+            }
+            catch (Exception error) { ActionStatus.Text = "温控曲线启动失败：" + error.Message; }
+        }
+
+        private async void StopCurve(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                await _module.StopCurveControlAsync();
+                ActionStatus.Text = "已停止温控曲线，并请求 EC 恢复自动风扇模式。";
+            }
+            catch (Exception error) { ActionStatus.Text = "停止 EC 控制失败：" + error.Message; }
         }
 
         private async void ApplySpeed(object sender, RoutedEventArgs e)
@@ -64,7 +89,7 @@ namespace NssWpfHost.Ec
         {
             try
             {
-                await _module.ReturnToEcAutoAsync();
+                await _module.StopCurveControlAsync();
                 ActionStatus.Text = "已向 EC 发送恢复自动风扇请求；硬件状态尚未确认。";
             }
             catch (Exception error) { ActionStatus.Text = "恢复 EC 自动模式失败：" + error.Message; }
