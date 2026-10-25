@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -14,6 +15,9 @@ namespace IntelNucStudio.Ec
         private readonly Window _window;
         private readonly Grid _root;
         private readonly Button _entry;
+        private readonly Image _entryIcon;
+        private readonly TextBlock _entryCaption;
+        private FrameworkElement _monitorView;
         private readonly DispatcherTimer _availabilityTimer;
         private FrameworkElement _homeView;
         private Border _pageHost;
@@ -22,9 +26,8 @@ namespace IntelNucStudio.Ec
         private bool _closingWindow;
         private Border _controlMask;
         private TextBlock _controlBadge;
-        private ContentControl _officialMainContent;
-        private bool _officialWasEnabled;
-        private bool _officialLocked;
+        private readonly Dictionary<FrameworkElement, bool> _lockedPerformanceViews = new Dictionary<FrameworkElement, bool>();
+        private OfficialTrayBridge _trayBridge;
         private readonly Func<EcControlPage> _pageFactory;
         private readonly Action<Exception> _reportHandoffFailure;
 
@@ -45,19 +48,25 @@ namespace IntelNucStudio.Ec
             if (_root == null) throw new InvalidOperationException("没有找到官方主窗口的布局容器，停止加载 EC 页面。");
             IntegrationDiagnostics.Write("Official content before integration: " + DescribeTree(officialContent));
 
+            _entryIcon = new Image { Source = CreateEcIcon(), Width = 36, Height = 36, Margin = new Thickness(0, 0, 0, 4) };
+            _entryCaption = new TextBlock { Text = "EC 风扇控制", FontSize = 12, Foreground = Brush("#00AFE5"), HorizontalAlignment = HorizontalAlignment.Center };
+            var entryContent = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            entryContent.Children.Add(_entryIcon);
+            entryContent.Children.Add(_entryCaption);
             _entry = new Button
             {
                 Name = "NssEcModuleEntry",
-                Content = "✣  EC 风扇控制",
+                Content = entryContent,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(130, 0, 0, 18),
-                Padding = new Thickness(16, 10, 16, 10),
-                FontSize = 15,
-                Background = Brush("#172C3B"),
+                Margin = new Thickness(130, 0, 0, 12),
+                Width = 100, Height = 70, Padding = new Thickness(0),
+                Background = Brushes.Transparent,
                 Foreground = Brush("#00AFE5"),
-                BorderBrush = Brush("#406073"),
-                BorderThickness = new Thickness(1),
+                BorderBrush = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+                Template = CreateModuleEntryTemplate(),
                 ToolTip = "打开 EC 直连风扇控制；不会自动改变厂商性能档位",
                 Visibility = Visibility.Collapsed
             };
@@ -67,7 +76,12 @@ namespace IntelNucStudio.Ec
             _root.Children.Add(_entry);
             BuildControlMask();
             _availabilityTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            _availabilityTimer.Tick += (sender, args) => UpdateEntryVisibility();
+            _availabilityTimer.Tick += (sender, args) =>
+            {
+                UpdateEntryVisibility();
+                if (_trayBridge == null) _trayBridge = OfficialTrayBridge.TryAttach(_application, ExitApplicationAsync);
+                _trayBridge?.Sync(_page?.HasControlRequest == true);
+            };
             _availabilityTimer.Start();
             // Layout can change when Prism replaces its active view. The home
             // view's visibility event covers removal without waiting for a timer.
@@ -103,6 +117,7 @@ namespace IntelNucStudio.Ec
             };
             application.Exit += OnApplicationExit;
             application.SessionEnding += (sender, args) => ReleaseBeforeExit();
+            _trayBridge = OfficialTrayBridge.TryAttach(_application, ExitApplicationAsync);
             IntegrationDiagnostics.Write("Integrated: app=" + application.GetType().FullName
                 + "; window=" + window.GetType().FullName + "; officialAssembly=" + window.GetType().Assembly.Location
                 + "; entry=" + _entry.Name + "; pid=" + System.Diagnostics.Process.GetCurrentProcess().Id);
@@ -179,17 +194,84 @@ namespace IntelNucStudio.Ec
             }
             var context = _window.DataContext;
             var show = _homeView?.IsVisible == true && (_pageHost == null || _pageHost.Visibility != Visibility.Visible)
-                && _page?.HasControlRequest != true
                 && !ReadFlag(context, "ShowEula") && !ReadFlag(context, "SettingsVisible");
             _entry.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             UpdateControlMask();
+            if (show) MatchSystemMonitorEntry();
+        }
+
+        private static ControlTemplate CreateModuleEntryTemplate()
+        {
+            var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            var surface = new FrameworkElementFactory(typeof(Border));
+            surface.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+            surface.AppendChild(presenter);
+            var template = new ControlTemplate(typeof(Button)) { VisualTree = surface };
+            var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+            hover.Setters.Add(new Setter(UIElement.OpacityProperty, 0.8));
+            template.Triggers.Add(hover);
+            return template;
+        }
+
+        private static ImageSource CreateEcIcon()
+        {
+            var drawing = new DrawingGroup();
+            drawing.Children.Add(new GeometryDrawing(Brush("#00AFE5"), null, new RectangleGeometry(new Rect(0, 0, 36, 36), 3, 3)));
+            var fan = Geometry.Parse("M18,16 C9,17 6,11 10,7 C15,3 20,9 20,14 Z M20,18 C25,9 32,12 32,18 C32,25 24,24 21,21 Z M17,20 C22,27 17,33 12,30 C6,27 10,22 14,19 Z");
+            drawing.Children.Add(new GeometryDrawing(Brush("#10212C"), null, fan));
+            drawing.Children.Add(new GeometryDrawing(Brush("#10212C"), null, new EllipseGeometry(new Point(18, 18), 3, 3)));
+            drawing.Freeze();
+            return new DrawingImage(drawing);
+        }
+
+        private void MatchSystemMonitorEntry()
+        {
+            if (_monitorView == null || !_root.IsAncestorOf(_monitorView))
+                _monitorView = FindElement<FrameworkElement>(_root, value => value.GetType().FullName == "SystemMonitorMgr.Views.SystemMonitorButtonView");
+            if (_monitorView?.IsVisible != true || !_root.IsAncestorOf(_monitorView)) return;
+            var button = FindElement<Button>(_monitorView, value => true);
+            if (button == null || !_root.IsAncestorOf(button) || button.ActualWidth <= 0 || button.ActualHeight <= 0) return;
+            var bounds = button.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
+            _entry.VerticalAlignment = VerticalAlignment.Top;
+            _entry.Width = Math.Round(bounds.Width, 3);
+            _entry.Height = Math.Round(bounds.Height, 3);
+            _entry.Margin = new Thickness(Math.Round(bounds.Right + 20, 3), Math.Round(bounds.Top, 3), 0, 0);
+            var icon = FindElement<Image>(button, value => value.ActualWidth > 0 && value.ActualHeight > 0);
+            if (icon != null)
+            {
+                var iconBounds = icon.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, icon.ActualWidth, icon.ActualHeight));
+                _entryIcon.Width = Math.Round(iconBounds.Width, 3);
+                _entryIcon.Height = Math.Round(iconBounds.Height, 3);
+            }
+            var caption = FindElement<TextBlock>(button, value => !string.IsNullOrWhiteSpace(value.Text));
+            if (caption != null)
+            {
+                var scale = caption.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, 1, 1)).Height;
+                _entryCaption.FontSize = caption.FontSize * scale;
+                _entryCaption.FontFamily = caption.FontFamily;
+                _entryCaption.FontWeight = caption.FontWeight;
+                _entryCaption.Foreground = caption.Foreground;
+            }
+        }
+
+        private static T FindElement<T>(DependencyObject node, Predicate<T> matches) where T : DependencyObject
+        {
+            if (node is T value && matches(value)) return value;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+            {
+                var found = FindElement(VisualTreeHelper.GetChild(node, i), matches);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private void BuildControlMask()
         {
-            var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 620 };
-            content.Children.Add(new TextBlock { Text = "EC控制中", Foreground = Brush("#FF4141"), FontSize = 34, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center });
-            content.Children.Add(new TextBlock { Text = "官方设备设置已锁定，请先停止 EC 控制再调整。", Foreground = Brush("#E4EDF3"), FontSize = 18, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 25), TextAlignment = TextAlignment.Center });
+            var content = new StackPanel { Width = 420, Margin = new Thickness(16), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+            content.Children.Add(new TextBlock { Text = "EC控制中", Foreground = Brush("#FF4141"), FontSize = 26, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center });
+            content.Children.Add(new TextBlock { Text = "性能调优已锁定，其余功能可正常使用。", Foreground = Brush("#E4EDF3"), FontSize = 16, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 18), TextAlignment = TextAlignment.Center });
             var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center };
             var open = new Button { Content = "返回 EC 控制", Padding = new Thickness(18, 10, 18, 10), Margin = new Thickness(8), FontSize = 16 };
             open.Click += (sender, args) => OpenPage();
@@ -201,8 +283,9 @@ namespace IntelNucStudio.Ec
             _controlMask = new Border
             {
                 Name = "NssEcControlMask", Background = Brush("#E610202D"),
-                Margin = new Thickness(0, 56, 0, 0), Visibility = Visibility.Collapsed,
-                Child = content, IsHitTestVisible = true
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+                Visibility = Visibility.Collapsed, ClipToBounds = true,
+                Child = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, Child = content }, IsHitTestVisible = true
             };
             SpanShell(_controlMask);
             Panel.SetZIndex(_controlMask, 150);
@@ -212,35 +295,55 @@ namespace IntelNucStudio.Ec
         private void UpdateControlMask()
         {
             var active = _page?.HasControlRequest == true;
-            if (_controlMask != null) _controlMask.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
             if (_controlBadge != null) _controlBadge.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
-            if (active && !_officialLocked)
+            FrameworkElement visiblePerformance = null;
+            if (active)
             {
-                _officialMainContent = FindOfficialMainContent(_root);
-                if (_officialMainContent != null)
+                foreach (var view in FindPerformanceViews(_root))
                 {
-                    _officialWasEnabled = _officialMainContent.IsEnabled;
-                    _officialMainContent.SetCurrentValue(UIElement.IsEnabledProperty, false);
-                    _officialLocked = true;
+                    if (!_lockedPerformanceViews.ContainsKey(view))
+                    {
+                        _lockedPerformanceViews.Add(view, view.IsEnabled);
+                        view.SetCurrentValue(UIElement.IsEnabledProperty, false);
+                    }
+                    if (view.IsVisible) visiblePerformance = view;
                 }
             }
-            else if (!active && _officialLocked)
+            else if (_lockedPerformanceViews.Count > 0)
             {
-                _officialMainContent.SetCurrentValue(UIElement.IsEnabledProperty, _officialWasEnabled);
-                _officialLocked = false;
+                foreach (var view in _lockedPerformanceViews) view.Key.SetCurrentValue(UIElement.IsEnabledProperty, view.Value);
+                _lockedPerformanceViews.Clear();
             }
+            if (_controlMask != null)
+            {
+                // IsVisibleChanged can fire while Prism detaches a view. Its
+                // visibility cache can still be true after the ancestor link is gone.
+                if (visiblePerformance != null && _root.IsAncestorOf(visiblePerformance)
+                    && visiblePerformance.ActualWidth > 0 && visiblePerformance.ActualHeight > 0)
+                {
+                    var bounds = visiblePerformance.TransformToAncestor(_root).TransformBounds(
+                        new Rect(0, 0, visiblePerformance.ActualWidth, visiblePerformance.ActualHeight));
+                    _controlMask.Width = Math.Round(bounds.Width, 3);
+                    _controlMask.Height = Math.Round(bounds.Height, 3);
+                    _controlMask.Margin = new Thickness(Math.Round(bounds.Left, 3), Math.Round(bounds.Top, 3), 0, 0);
+                    _controlMask.Visibility = Visibility.Visible;
+                }
+                else _controlMask.Visibility = Visibility.Collapsed;
+            }
+            _trayBridge?.Sync(active);
         }
 
-        private static ContentControl FindOfficialMainContent(DependencyObject node)
+        private static IEnumerable<FrameworkElement> FindPerformanceViews(DependencyObject node)
         {
-            if (node is ContentControl control && (control.Content?.GetType().FullName == "FeatureMgr.Views.ProfilesView"
-                || control.Content?.GetType().FullName == "FeatureMgr.Views.DetailView")) return control;
-            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+            var name = node.GetType().FullName;
+            if (node is FrameworkElement view && (name == "MobilePerformanceMgr.Views.MobilePerformanceSummaryView"
+                || name == "MobilePerformanceMgr.Views.MobilePerformanceView"))
             {
-                var found = FindOfficialMainContent(VisualTreeHelper.GetChild(node, i));
-                if (found != null) return found;
+                yield return view;
+                yield break;
             }
-            return null;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+                foreach (var child in FindPerformanceViews(VisualTreeHelper.GetChild(node, i))) yield return child;
         }
 
         private void OnHomeVisibilityChanged(object sender, DependencyPropertyChangedEventArgs args) => UpdateEntryVisibility();
@@ -332,7 +435,7 @@ namespace IntelNucStudio.Ec
             finally { _closingPage = false; }
         }
 
-        private async Task ExitApplicationAsync()
+        internal async Task ExitApplicationAsync()
         {
             if (_closingWindow) return;
             _closingWindow = true;
@@ -349,6 +452,7 @@ namespace IntelNucStudio.Ec
         {
             _availabilityTimer.Stop();
             ReleaseBeforeExit();
+            _trayBridge?.Dispose();
         }
 
         private void ReleaseBeforeExit()

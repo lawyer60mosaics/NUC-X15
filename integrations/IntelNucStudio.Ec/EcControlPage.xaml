@@ -27,7 +27,7 @@
  </UserControl.Resources>
  <ScrollViewer VerticalScrollBarVisibility="Auto">
   <StackPanel Margin="24,4,24,24">
-   <TextBlock Text="EC 开启期间，官方设置将锁定。返回主页会保持 EC 控制；停止 EC 后可继续调整官方设置。退出时交还固件自动控制。" Foreground="#B9CBD5" TextWrapping="Wrap" Margin="0,0,0,18"/>
+   <TextBlock Text="EC 开启期间仅锁定性能调优，其他功能仍可使用。返回主页会保持 EC 控制；退出时交还固件自动控制。" Foreground="#B9CBD5" TextWrapping="Wrap" Margin="0,0,0,18"/>
    <Border Background="#192D3B" Padding="22" Margin="0,0,0,16">
     <Grid>
      <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>

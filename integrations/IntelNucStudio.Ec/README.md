@@ -8,11 +8,13 @@ entry and page to that window. The original WPF controls, Prism modules, BAML,
 resources, bindings, and service client assemblies remain in use.
 
 The EC page calls the shared C# WMI controller in-process. Its entry appears only
-on the official home view. Opening the page only reads hardware. During EC control,
-the official content region is disabled and covered by a mask with red
-`EC控制中` text. Returning home retains EC control and the mask; stopping EC hands
-back to firmware before unlocking official settings. Failed handoff retains the
-lock. Fixed speed requests recheck temperature protection every second. The
+on the official home view, matching the native System Monitor shortcut's icon-above-caption
+layout, font size and icon dimensions. Opening the page only reads hardware. During EC control,
+only the official performance summary/detail is disabled and covered by a mask with red
+`EC控制中` text. Other functions such as keyboard, lighting, display and system
+configuration remain usable. Returning home retains EC and the performance mask;
+stopping EC hands back to firmware before unlocking performance. Failed handoff
+retains the lock. Fixed speed requests recheck temperature protection every second. The
 original close glyph and Alt+F4 hand off before exiting instead of only hiding
 the window. This first version does not provide an out-of-process crash
 watchdog; forced termination cannot execute exit cleanup.
@@ -22,6 +24,11 @@ repository's 35–85°C CPU/GPU curves. Selecting a preset starts it; selecting 
 while running atomically replaces the profile without handing off EC ownership.
 Ramp rates and thermal overrides remain active, and these presets do not alter
 the official vendor CPU/GPU performance settings.
+
+Version 0.1.3 replaces the official tray `Exit_Click` delegate because it reads
+`ApplicationData.Current` without a package-identity fallback before shutdown.
+The safe exit callback also survives original menu rebuilds. Tray performance
+presets are disabled during EC control, while tray lighting/open/exit stay usable.
 
 The copied EXE configuration explicitly registers WCF `netHttpBinding` and opts
 into .NET Framework 4.8. Without this compatibility configuration, the original
@@ -44,13 +51,16 @@ manifest. Optional development startup diagnostics are enabled only when
 Verification: REA identified the actual App, MainWindow, ProfilesView and official
 close handler. Runtime diagnostics confirmed the EC DLL loaded in the original
 `NucSoftwareStudio.exe` and its MainWindow; the original five modules and service
-telemetry became available after the WCF fix. The test executable covers 14 curve,
+telemetry became available after the WCF fix. The test executable covers 22 shortcut-style, curve,
 production-loop hot-swap, thermal, input validation, WPF navigation, interlock,
-failure-recovery and exit scenarios with simulated EC boundaries:
+failure-recovery, partial-mask and tray scenarios with simulated EC boundaries.
+An optional original-artifact fixture binds and reproduces the actual shipped
+`TrayApp.Exit_Click` before verifying its replacement:
 
 ```powershell
 rtk proxy dotnet build integrations/IntelNucStudio.Ec.Tests -c Release
 rtk proxy integrations/IntelNucStudio.Ec.Tests/bin/Release/net48/IntelNucStudio.Ec.Tests.exe
+rtk proxy integrations/IntelNucStudio.Ec.Tests/bin/Release/net48/IntelNucStudio.Ec.Tests.exe --exit-via-tray --official-dir 'C:\path\extracted\NucSoftwareStudio'
 ```
 
 These tests perform no hardware writes. Real EC actuation is a separate device

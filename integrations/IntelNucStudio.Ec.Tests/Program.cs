@@ -16,6 +16,17 @@ namespace FeatureMgr.Views
     public sealed class DetailView : UserControl { }
 }
 
+namespace MobilePerformanceMgr.Views
+{
+    public sealed class MobilePerformanceSummaryView : UserControl { }
+    public sealed class MobilePerformanceView : UserControl { }
+}
+
+namespace SystemMonitorMgr.Views
+{
+    public sealed class SystemMonitorButtonView : UserControl { }
+}
+
 namespace IntelNucStudio.Ec.Tests
 {
     internal static class Program
@@ -23,10 +34,15 @@ namespace IntelNucStudio.Ec.Tests
         private static int _passed;
         private static int _result = 1;
         private static FakeController _controller;
+        private static bool _exitViaTray;
+        private static string _officialDirectory;
 
         [STAThread]
-        private static int Main()
+        private static int Main(string[] args)
         {
+            _exitViaTray = Array.IndexOf(args, "--exit-via-tray") >= 0;
+            var directoryIndex = Array.IndexOf(args, "--official-dir");
+            if (directoryIndex >= 0 && directoryIndex + 1 < args.Length) _officialDirectory = args[directoryIndex + 1];
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.Startup += async (sender, args) =>
             {
@@ -46,7 +62,30 @@ namespace IntelNucStudio.Ec.Tests
         private static async Task RunScenarios(Application app)
         {
             await EcPresetScenarios.RunAsync(Pass);
-            var home = new FeatureMgr.Views.ProfilesView { Content = new Button { Content = "Official setting" } };
+            TrayScenarios.Run(Pass, _officialDirectory);
+            var performance = new MobilePerformanceMgr.Views.MobilePerformanceSummaryView { Content = new Button { Content = "Performance setting" } };
+            var keyboard = new Button { Content = "Keyboard setting" };
+            var cards = new Grid();
+            cards.ColumnDefinitions.Add(new ColumnDefinition());
+            cards.ColumnDefinitions.Add(new ColumnDefinition());
+            cards.Children.Add(performance);
+            Grid.SetColumn(keyboard, 1);
+            cards.Children.Add(keyboard);
+            var monitorContent = new StackPanel();
+            monitorContent.Children.Add(new Image { Width = 36, Height = 36 });
+            monitorContent.Children.Add(new TextBlock { Text = "系统监视器", FontSize = 12 });
+            var monitor = new SystemMonitorMgr.Views.SystemMonitorButtonView
+            {
+                Width = 100, Height = 70, HorizontalAlignment = HorizontalAlignment.Left,
+                Content = new Button { Content = monitorContent }
+            };
+            var homeLayout = new Grid();
+            homeLayout.RowDefinitions.Add(new RowDefinition());
+            homeLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(80) });
+            homeLayout.Children.Add(cards);
+            Grid.SetRow(monitor, 1);
+            homeLayout.Children.Add(monitor);
+            var home = new FeatureMgr.Views.ProfilesView { Content = homeLayout };
             var officialRegion = new ContentControl { Content = home };
             var close = new Button { Content = new TextBlock { Text = "\uE106" } };
             var root = new Grid();
@@ -59,13 +98,19 @@ namespace IntelNucStudio.Ec.Tests
             window.Show();
             await Pump();
             Exception releaseError = null;
-            new EcShellIntegration(app, window,
+            var integration = new EcShellIntegration(app, window,
                 () => new EcControlPage(_controller = new FakeController(), () => { }), error => releaseError = error);
             await Pump();
             var entry = Find<Button>(root, value => value.Name == "NssEcModuleEntry");
             Assert(entry.Visibility == Visibility.Visible, "Entry should be visible on the home view");
             Assert(ReferenceEquals(window.Content, root), "Integration must not reparent official Window.Content");
             Pass("Home-only entry preserves the official visual tree");
+            var entryIcon = Find<Image>(entry, value => true);
+            var entryLabel = Find<TextBlock>(entry, value => value.Text == "EC 风扇控制");
+            Assert(entry.BorderThickness == new Thickness(0) && entryIcon.Width == 36 && entryIcon.Height == 36
+                && entryLabel.FontSize == 12 && entry.Margin.Left > monitor.ActualWidth,
+                "EC shortcut must match the icon/caption monitor style beside the original shortcut");
+            Pass("EC shortcut matches the system monitor icon/caption style without a frame");
 
             officialRegion.Content = new FeatureMgr.Views.DetailView();
             await Pump();
@@ -97,7 +142,7 @@ namespace IntelNucStudio.Ec.Tests
             _controller.FailPreset = EcFanPreset.Quiet;
             Click(Find<Button>(page, value => Equals(value.Tag, "Quiet")));
             await Pump();
-            Assert(_controller.ActivePreset == EcFanPreset.Balanced && !officialRegion.IsEnabled,
+            Assert(_controller.ActivePreset == EcFanPreset.Balanced && !performance.IsEnabled && keyboard.IsEnabled,
                 "Failed preset switching must retain the previous preset and lock");
             _controller.FailPreset = null;
             Pass("Failed preset switching retains the active curve and official lock");
@@ -105,22 +150,39 @@ namespace IntelNucStudio.Ec.Tests
             Click(Find<Button>(page, value => Equals(value.Content, "重新读取")));
             await Pump();
             var mask = Find<Border>(root, value => value.Name == "NssEcControlMask");
-            Assert(mask.Visibility == Visibility.Visible && !officialRegion.IsEnabled, "EC did not lock official controls");
+            Assert(mask.Visibility == Visibility.Visible && !performance.IsEnabled && officialRegion.IsEnabled && keyboard.IsEnabled,
+                "EC must lock only performance and leave other settings usable");
+            Assert(Math.Abs(mask.Width - performance.ActualWidth) < 1 && mask.Width < root.ActualWidth,
+                "Mask should match performance card bounds, not the whole window");
             var warning = Find<TextBlock>(mask, value => value.Text == "EC控制中");
             Assert(((SolidColorBrush)warning.Foreground).Color.R > 200, "Warning should be red");
-            Pass("Active EC displays a red warning and disables official settings");
+            Pass("Active EC masks only performance and keeps keyboard controls usable");
 
             Click(Find<Button>(root, value => Equals(value.Content, "‹  返回官方主页")));
             await Pump();
-            Assert(_controller.IsManualControlRequested && mask.Visibility == Visibility.Visible && !officialRegion.IsEnabled,
+            Assert(_controller.IsManualControlRequested && mask.Visibility == Visibility.Visible && !performance.IsEnabled && keyboard.IsEnabled,
                 "Returning home must retain EC and its interlock");
-            Assert(entry.Visibility == Visibility.Collapsed, "Normal entry should be hidden under the EC mask");
+            Assert(entry.Visibility == Visibility.Visible, "Home entry must remain accessible beside a performance-only mask");
             Pass("Returning home keeps EC running behind the mask");
+
+            var lightControl = new Button { Content = "Light setting" };
+            officialRegion.Content = new FeatureMgr.Views.DetailView { Content = lightControl };
+            await Pump();
+            Assert(mask.Visibility == Visibility.Collapsed && lightControl.IsEnabled && _controller.IsManualControlRequested,
+                "Non-performance detail pages must stay unmasked during EC control");
+            var performanceDetail = new MobilePerformanceMgr.Views.MobilePerformanceView { Content = new Button { Content = "Fan mode" } };
+            officialRegion.Content = new FeatureMgr.Views.DetailView { Content = performanceDetail };
+            await Pump();
+            Assert(mask.Visibility == Visibility.Visible && !performanceDetail.IsEnabled && officialRegion.IsEnabled,
+                "Performance detail must be locked without disabling the whole shell");
+            officialRegion.Content = home;
+            await Pump();
+            Pass("Navigation masks performance detail while leaving lighting detail usable");
 
             _controller.FailRelease = true;
             Click(Find<Button>(mask, value => Equals(value.Content, "停止 EC 并解锁")));
             await Pump();
-            Assert(releaseError != null && mask.Visibility == Visibility.Visible && !officialRegion.IsEnabled,
+            Assert(releaseError != null && mask.Visibility == Visibility.Visible && !performance.IsEnabled && keyboard.IsEnabled,
                 "Failed handoff must keep official settings locked");
             Pass("Failed handoff retains the mask and lock");
 
@@ -128,7 +190,8 @@ namespace IntelNucStudio.Ec.Tests
             Click(Find<Button>(mask, value => Equals(value.Content, "停止 EC 并解锁")));
             await Pump();
             Assert(!_controller.IsManualControlRequested && _controller.Disposed && officialRegion.IsEnabled
-                && mask.Visibility == Visibility.Collapsed, "Successful handoff did not unlock official controls");
+                && performance.IsEnabled && performanceDetail.IsEnabled && mask.Visibility == Visibility.Collapsed,
+                "Successful handoff did not restore all performance views");
             Pass("Successful handoff restores official settings");
 
             Click(entry);
@@ -137,11 +200,26 @@ namespace IntelNucStudio.Ec.Tests
             _controller.IsManualControlRequested = true;
             Click(Find<Button>(page, value => Equals(value.Content, "重新读取")));
             await Pump();
+            _controller.FailRelease = true;
+            using (var failedExitTray = new TestOfficialTray())
+            using (var failedExitBridge = new OfficialTrayBridge(failedExitTray, failedExitTray.Icon, integration.ExitApplicationAsync))
+                failedExitTray.ExitItem.PerformClick();
+            await Pump();
+            Assert(!window.Dispatcher.HasShutdownStarted && _controller.IsManualControlRequested
+                && !performance.IsEnabled && keyboard.IsEnabled, "Failed tray exit must retain EC and the performance-only lock");
+            _controller.FailRelease = false;
+            Pass("Failed EC handoff during tray exit leaves the application running for retry");
             _result = 0;
-            close.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            if (_exitViaTray)
+            {
+                using (var tray = new TestOfficialTray())
+                using (var bridge = new OfficialTrayBridge(tray, tray.Icon, integration.ExitApplicationAsync))
+                    tray.ExitItem.PerformClick();
+            }
+            else close.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
                 { RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent });
             Assert(!_controller.IsManualControlRequested && _controller.Disposed, "Close button must hand off EC before shutdown");
-            Pass("Official close button hands off EC before process exit");
+            Pass((_exitViaTray ? "Official tray exit" : "Official close button") + " hands off EC before process exit");
         }
 
         private static async Task Pump() { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); }
