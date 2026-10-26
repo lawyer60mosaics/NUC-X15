@@ -19,6 +19,14 @@ original close glyph and Alt+F4 hide to tray while EC continues running;
 only explicit Exit commands hand off before exiting. This version does not provide an out-of-process crash
 watchdog; forced termination cannot execute exit cleanup.
 
+Version 0.1.7 adds the NSIS installation distribution and a small elevated
+launcher. Shortcuts start the original official EXE with its installation folder
+as the working directory. Setup/upgrade/uninstall refuse a running official GUI
+instead of killing it. Existing owned startup tasks migrate without changing
+their enabled state; uninstall removes only tasks pointing to this installation.
+The uninstall file list is explicit and keeps unrelated user files. See
+`docs/windows-installer.md` for build commands and verification boundaries.
+
 Version 0.1.6 applies an industrial WPF theme to the actual official home and
 detail controls: matte navy surfaces, precise thin card frames/header separators,
 consistent typography, rectangular buttons and slider grips, dark dropdowns and
@@ -76,7 +84,7 @@ manifest. Optional development startup diagnostics are enabled only when
 Verification: REA identified the actual App, MainWindow, ProfilesView and official
 close handler. Runtime diagnostics confirmed the EC DLL loaded in the original
 `NucSoftwareStudio.exe` and its MainWindow; the original five modules and service
-telemetry became available after the WCF fix. The test executable covers 34 startup, theme, shortcut-style, curve,
+telemetry became available after the WCF fix. The test executable covers 38 installation, startup, theme, shortcut-style, curve,
 production-loop hot-swap, thermal, input validation, WPF navigation, interlock,
 failure-recovery, partial-mask and tray scenarios with simulated EC boundaries.
 An optional original-artifact fixture binds and reproduces the actual shipped
@@ -90,7 +98,7 @@ rtk proxy integrations/IntelNucStudio.Ec.Tests/bin/Release/net48/IntelNucStudio.
 
 Adding `--task-scheduler-check` validates the generated XML with the installed
 Windows scheduler and tests missing-task lookup without registration. With both
-optional checks, 39 scenarios run, including real vendor control-style contracts
+optional checks, 43 scenarios run, including real vendor control-style contracts
 and all five original home BAML views with null models (no vendor services).
 Tests use a memory task store for writes;
 elevated task registration and an actual sign-in/reboot remain device checks.

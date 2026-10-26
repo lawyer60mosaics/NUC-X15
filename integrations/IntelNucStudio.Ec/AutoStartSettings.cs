@@ -31,12 +31,13 @@ namespace IntelNucStudio.Ec
     internal sealed class AutoStartSettings : IAutoStartSettings
     {
         internal const string Source = "NUCtool.IntelNucStudio.Ec.AutoStart";
+        internal const string TaskPrefix = "NUCtool.IntelNucStudio.EC.";
         internal static readonly XNamespace TaskNamespace = "http://schemas.microsoft.com/windows/2004/02/mit/task";
         private readonly string _exe;
         private readonly string _sid;
         private readonly ILogonTaskStore _store;
         private readonly Func<bool> _isAdministrator;
-        internal string TaskName => "NUCtool.IntelNucStudio.EC." + _sid;
+        internal string TaskName => TaskPrefix + _sid;
 
         internal AutoStartSettings(string exe, string sid, ILogonTaskStore store, Func<bool> isAdministrator)
         {
@@ -117,8 +118,35 @@ namespace IntelNucStudio.Ec
 
     // COM is used only to query an exact task with an unambiguous not-found HRESULT.
     // Mutations use Windows' installed schtasks.exe, with no shell or password.
-    internal sealed class WindowsLogonTaskStore : ILogonTaskStore
+    internal sealed class WindowsLogonTaskStore : IInstallationTaskStore
     {
+        public System.Collections.Generic.IReadOnlyList<LogonTaskRegistration> Enumerate()
+        {
+            object service = null, folder = null, tasks = null;
+            var entries = new System.Collections.Generic.List<LogonTaskRegistration>();
+            try
+            {
+                service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service", true));
+                ((dynamic)service).Connect();
+                folder = ((dynamic)service).GetFolder("\\");
+                tasks = ((dynamic)folder).GetTasks(1);
+                for (var i = 1; i <= (int)((dynamic)tasks).Count; i++)
+                {
+                    object task = null;
+                    try
+                    {
+                        task = ((dynamic)tasks)[i];
+                        var name = (string)((dynamic)task).Name;
+                        if (name.StartsWith(AutoStartSettings.TaskPrefix, StringComparison.Ordinal))
+                            entries.Add(new LogonTaskRegistration(name, (string)((dynamic)task).Xml));
+                    }
+                    finally { Release(task); }
+                }
+                return entries;
+            }
+            finally { Release(tasks); Release(folder); Release(service); }
+        }
+
         public string Read(string name)
         {
             object service = null, folder = null, task = null;

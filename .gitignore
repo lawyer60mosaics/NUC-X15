@@ -33,3 +33,5 @@ i18n-*.png
 artifacts/nss-ec/
 releases/IntelNUCSoftwareStudio-EC*/
 releases/IntelNUCSoftwareStudio-EC*.zip
+releases/IntelNUCSoftwareStudio-EC*-Setup.exe
+releases/IntelNUCSoftwareStudio-EC*-Setup.exe.json

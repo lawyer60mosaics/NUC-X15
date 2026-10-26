@@ -71,6 +71,7 @@ namespace IntelNucStudio.Ec.Tests
         private static async Task RunScenarios(Application app)
         {
             await EcPresetScenarios.RunAsync(Pass);
+            InstallationScenarios.Run(Pass);
             await AutoStartScenarios.RunAsync(Pass, Array.IndexOf(Environment.GetCommandLineArgs(), "--task-scheduler-check") >= 0);
             TrayScenarios.Run(Pass, _officialDirectory);
             await IndustrialThemeScenarios.Run(app, _officialDirectory, _snapshotDirectory, Pass);

@@ -148,6 +148,8 @@ namespace IntelNucStudio.Ec.Tests
                 ((dynamic)definition).XmlText = xml; // validates schema without registering/running anything
                 Assert(new WindowsLogonTaskStore().Read("NUCtool.Ec.ReadOnlyProbe." + Guid.NewGuid().ToString("N")) == null,
                     "Exact absent-task lookup should report disabled instead of a scheduler failure");
+                foreach (var entry in new WindowsLogonTaskStore().Enumerate())
+                    Assert(entry.Name.StartsWith(AutoStartSettings.TaskPrefix, StringComparison.Ordinal), "Installer enumeration must project only this product's task names");
             }
             finally
             {

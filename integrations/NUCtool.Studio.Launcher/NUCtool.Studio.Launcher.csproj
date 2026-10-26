@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+  <TargetFramework>net48</TargetFramework>
+  <OutputType>WinExe</OutputType>
+  <LangVersion>latest</LangVersion>
+  <AssemblyName>NUCtool.Studio.Launcher</AssemblyName>
+  <RootNamespace>NUCtool.Studio.Launcher</RootNamespace>
+  <Version>0.1.7</Version>
+  <ApplicationManifest>app.manifest</ApplicationManifest>
+  <Prefer32Bit>false</Prefer32Bit>
+ </PropertyGroup>
+ <ItemGroup>
+  <Reference Include="System.Windows.Forms"/>
+  <ProjectReference Include="../IntelNucStudio.Ec/IntelNucStudio.Ec.csproj"/>
+  <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="All"/>
+ </ItemGroup>
+</Project>

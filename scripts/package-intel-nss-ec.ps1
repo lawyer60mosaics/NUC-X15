@@ -34,10 +34,16 @@ if ($OutputDirectory.Equals($NssSourceDir, [StringComparison]::OrdinalIgnoreCase
 
 & rtk proxy dotnet build (Join-Path $repoDir 'integrations/IntelNucStudio.Ec/IntelNucStudio.Ec.csproj') -c Release --ignore-failed-sources
 if ($LASTEXITCODE -ne 0) { throw 'EC extension build failed.' }
+& rtk proxy dotnet build (Join-Path $repoDir 'integrations/NUCtool.Studio.Launcher/NUCtool.Studio.Launcher.csproj') -c Release --ignore-failed-sources
+if ($LASTEXITCODE -ne 0) { throw 'Elevated launcher build failed.' }
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 Get-ChildItem -LiteralPath $NssSourceDir -Force | Copy-Item -Destination $OutputDirectory -Recurse -Force
 $extensionDll = Join-Path $repoDir 'integrations/IntelNucStudio.Ec/bin/Release/net48/IntelNucStudio.Ec.dll'
 Copy-Item -LiteralPath $extensionDll -Destination $OutputDirectory -Force
+$launcherDirectory = Join-Path $repoDir 'integrations/NUCtool.Studio.Launcher/bin/Release/net48'
+foreach ($launcherFile in @('NUCtool.Studio.Launcher.exe', 'NUCtool.Studio.Launcher.exe.config')) {
+    Copy-Item -LiteralPath (Join-Path $launcherDirectory $launcherFile) -Destination $OutputDirectory -Force
+}
 $extensionIdentity = [Reflection.AssemblyName]::GetAssemblyName($extensionDll)
 $extensionVersion = $extensionIdentity.Version.ToString(3)
 
@@ -95,6 +101,8 @@ $manifest = [ordered]@{
     entryPoint = 'NucSoftwareStudio.exe'
     originalExeSha256 = $sourceExeHash
     extensionSha256 = (Get-FileHash -LiteralPath $extensionDll -Algorithm SHA256).Hash
+    launcher = 'NUCtool.Studio.Launcher.exe'
+    launcherSha256 = (Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'NUCtool.Studio.Launcher.exe') -Algorithm SHA256).Hash
     integration = '.NET Framework AppDomainManager configured in the official EXE config; EC WPF controls run in the official process/window'
     version = $extensionVersion
     originalFilesVerified = $originalFiles.Count
@@ -107,7 +115,7 @@ Intel NUC Software Studio · EC 扩展版
 
 启动的是官方程序 NucSoftwareStudio.exe。
 1. 正常退出已打开的 Intel NUC Software Studio 和其他正在接管 EC 的工具。
-2. 右键 NucSoftwareStudio.exe，选择“以管理员身份运行”。
+2. 安装版从开始菜单或桌面快捷方式启动；便携版运行 NUCtool.Studio.Launcher.exe，自动申请管理员权限。
 3. 在官方主界面底部点击“EC 风扇控制”。
 
 EC 模块提供：CPU/显卡温度与双风扇 RPM、静音/平衡/性能三档温控、固定转速、交还固件自动控制。
@@ -138,6 +146,7 @@ EC 功能仅支持 LAPKC71E、LAPKC71F、LAPAC71H。
 '@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'EC扩展使用说明.txt') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $repoDir 'docs/official-nss-ec-integration.md') -Destination (Join-Path $OutputDirectory '功能与验收说明.md') -Force
 Copy-Item -LiteralPath (Join-Path $repoDir 'docs/industrial-ui-design.md') -Destination (Join-Path $OutputDirectory '工业界面设计说明.md') -Force
+Copy-Item -LiteralPath (Join-Path $repoDir 'docs/windows-installer.md') -Destination (Join-Path $OutputDirectory '安装版使用说明.md') -Force
 
 $zipPath = $OutputDirectory + '.zip'
 Remove-Item -LiteralPath (Join-Path $OutputDirectory '.ec-diagnostics') -Force -ErrorAction SilentlyContinue
