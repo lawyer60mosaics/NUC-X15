@@ -38,6 +38,7 @@ namespace IntelNucStudio.Ec
         {
             IntegrationDiagnostics.Write("Official dispatcher is running.");
             var started = DateTime.UtcNow;
+            var backgroundPrepared = false;
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             EventHandler tick = null;
             tick = (sender, args) =>
@@ -47,14 +48,24 @@ namespace IntelNucStudio.Ec
                     var app = Application.Current;
                     var window = app?.MainWindow;
                     if (app?.GetType().FullName == "NucSoftwareStudio.App"
-                        && window?.GetType().FullName == "NucSoftwareStudio.Views.MainWindow"
-                        && window.IsLoaded)
+                        && window?.GetType().FullName == "NucSoftwareStudio.Views.MainWindow")
                     {
-                        timer.Stop();
-                        timer.Tick -= tick;
-                        EcShellIntegration.Install(app, window);
+                        // The original `tray` startup returns before Prism shows
+                        // the shell. Load its WPF templates invisibly once so our
+                        // extension and safe tray exit can attach before first Open.
+                        if (!window.IsLoaded && !backgroundPrepared && IsBackgroundStartup(Environment.GetCommandLineArgs()))
+                        {
+                            backgroundPrepared = true;
+                            PrepareBackgroundWindow(window);
+                        }
+                        if (window.IsLoaded)
+                        {
+                            timer.Stop();
+                            timer.Tick -= tick;
+                            EcShellIntegration.Install(app, window);
+                        }
                     }
-                    else if (DateTime.UtcNow - started > TimeSpan.FromSeconds(60))
+                    if (timer.IsEnabled && DateTime.UtcNow - started > TimeSpan.FromSeconds(60))
                     {
                         timer.Stop();
                         timer.Tick -= tick;
@@ -72,6 +83,27 @@ namespace IntelNucStudio.Ec
             };
             timer.Tick += tick;
             timer.Start();
+        }
+
+        internal static bool IsBackgroundStartup(string[] arguments) => arguments.Length > 1 && arguments[1] == "tray";
+
+        internal static void PrepareBackgroundWindow(Window window)
+        {
+            var opacity = window.Opacity;
+            var taskbar = window.ShowInTaskbar;
+            try
+            {
+                window.Opacity = 0;
+                window.ShowInTaskbar = false;
+                window.Show();
+                window.UpdateLayout();
+            }
+            finally
+            {
+                window.Hide();
+                window.ShowInTaskbar = taskbar;
+                window.Opacity = opacity;
+            }
         }
     }
 

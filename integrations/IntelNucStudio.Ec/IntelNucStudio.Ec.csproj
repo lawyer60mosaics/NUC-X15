@@ -5,11 +5,13 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>IntelNucStudio.Ec</AssemblyName>
     <RootNamespace>IntelNucStudio.Ec</RootNamespace>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Management" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Xml.Linq" />
     <Compile Include="../../experiments/NssWpfHost/Ec/EcFanModule.cs" Link="Ec/EcFanModule.cs" />
     <Compile Include="../../experiments/NssWpfHost/Ec/EcWmiSession.cs" Link="Ec/EcWmiSession.cs" />
     <Compile Include="../../experiments/NssWpfHost/Ec/IEcFanController.cs" Link="Ec/IEcFanController.cs" />

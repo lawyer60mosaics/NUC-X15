@@ -19,6 +19,15 @@ original close glyph and Alt+F4 hide to tray while EC continues running;
 only explicit Exit commands hand off before exiting. This version does not provide an out-of-process crash
 watchdog; forced termination cannot execute exit cleanup.
 
+Version 0.1.5 adds a checked **开机自启动** item to the original tray menu.
+It creates/removes one current-user logon task through Windows `schtasks.exe`,
+runs the current official EXE with `tray` after 15 seconds, uses the interactive
+user's highest available privileges without storing a password, and allows battery
+operation without a runtime limit. Startup does not enable EC control. State is
+read back from Task Scheduler; failures remain visible and retryable. A moved/new
+copy can explicitly update the task path. Tray startup initializes WPF templates
+invisibly so the extension and safe exit can attach before the first Open.
+
 Version 0.1.2 adds Quiet / Balanced / Performance EC fan presets using the existing
 repository's 35–85°C CPU/GPU curves. Selecting a preset starts it; selecting another
 while running atomically replaces the profile without handing off EC ownership.
@@ -58,10 +67,10 @@ manifest. Optional development startup diagnostics are enabled only when
 Verification: REA identified the actual App, MainWindow, ProfilesView and official
 close handler. Runtime diagnostics confirmed the EC DLL loaded in the original
 `NucSoftwareStudio.exe` and its MainWindow; the original five modules and service
-telemetry became available after the WCF fix. The test executable covers 24 shortcut-style, curve,
+telemetry became available after the WCF fix. The test executable covers 32 startup, shortcut-style, curve,
 production-loop hot-swap, thermal, input validation, WPF navigation, interlock,
 failure-recovery, partial-mask and tray scenarios with simulated EC boundaries.
-An optional 25th original-artifact fixture binds and reproduces the actual shipped
+An optional original-artifact fixture binds and reproduces the actual shipped
 `TrayApp.Exit_Click` before verifying its replacement:
 
 ```powershell
@@ -69,6 +78,11 @@ rtk proxy dotnet build integrations/IntelNucStudio.Ec.Tests -c Release
 rtk proxy integrations/IntelNucStudio.Ec.Tests/bin/Release/net48/IntelNucStudio.Ec.Tests.exe
 rtk proxy integrations/IntelNucStudio.Ec.Tests/bin/Release/net48/IntelNucStudio.Ec.Tests.exe --exit-via-tray --official-dir 'C:\path\extracted\NucSoftwareStudio'
 ```
+
+Adding `--task-scheduler-check` validates the generated XML with the installed
+Windows scheduler and tests missing-task lookup without registration. With both
+optional checks, 34 scenarios run. Tests use a memory task store for writes;
+elevated task registration and an actual sign-in/reboot remain device checks.
 
 These tests perform no hardware writes. Real EC actuation is a separate device
 check and must not be inferred from passing UI tests or successful compilation.

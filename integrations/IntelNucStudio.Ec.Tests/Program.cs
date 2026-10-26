@@ -65,6 +65,7 @@ namespace IntelNucStudio.Ec.Tests
         private static async Task RunScenarios(Application app)
         {
             await EcPresetScenarios.RunAsync(Pass);
+            await AutoStartScenarios.RunAsync(Pass, Array.IndexOf(Environment.GetCommandLineArgs(), "--task-scheduler-check") >= 0);
             TrayScenarios.Run(Pass, _officialDirectory);
             var performance = new MobilePerformanceMgr.Views.MobilePerformanceSummaryView { Content = new Button { Content = "Performance setting" } };
             var keyboard = new Button { Content = "Keyboard setting" };

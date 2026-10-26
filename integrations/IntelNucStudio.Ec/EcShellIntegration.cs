@@ -140,7 +140,7 @@ namespace IntelNucStudio.Ec
             IntegrationDiagnostics.Write("Integrated: app=" + application.GetType().FullName
                 + "; window=" + window.GetType().FullName + "; officialAssembly=" + window.GetType().Assembly.Location
                 + "; entry=" + _entry.Name + "; pid=" + System.Diagnostics.Process.GetCurrentProcess().Id);
-            if (Array.IndexOf(Environment.GetCommandLineArgs(), "tray") < 0)
+            if (!EcDomainManager.IsBackgroundStartup(Environment.GetCommandLineArgs()))
                 window.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => { window.Show(); window.Activate(); }));
         }
 

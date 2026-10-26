@@ -17,6 +17,7 @@ namespace IntelNucStudio.Ec
         private readonly object _tray;
         private readonly Forms.NotifyIcon _icon;
         private readonly Func<Task> _exit;
+        private readonly AutoStartMenu _autoStart;
         private readonly Dictionary<Forms.ToolStripItem, bool> _locked = new Dictionary<Forms.ToolStripItem, bool>();
         private readonly HashSet<Forms.ToolStripItem> _rebound = new HashSet<Forms.ToolStripItem>();
         private Forms.ContextMenuStrip _menu;
@@ -25,9 +26,9 @@ namespace IntelNucStudio.Ec
         private static readonly PropertyInfo EventsProperty = typeof(Component).GetProperty("Events", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly object ClickKey = typeof(Forms.ToolStripItem).GetField("EventClick", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null);
 
-        internal OfficialTrayBridge(object tray, Forms.NotifyIcon icon, Func<Task> exit)
+        internal OfficialTrayBridge(object tray, Forms.NotifyIcon icon, Func<Task> exit, AutoStartMenu autoStart = null)
         {
-            _tray = tray; _icon = icon; _exit = exit;
+            _tray = tray; _icon = icon; _exit = exit; _autoStart = autoStart;
             if (ClickKey == null || EventsProperty == null) throw new InvalidOperationException("无法识别托盘菜单事件结构。");
             _icon.MouseDown += OnMouseDown;
             Sync(false);
@@ -47,13 +48,18 @@ namespace IntelNucStudio.Ec
                 var tray = resolve.Invoke(container, new object[] { contract });
                 var icon = tray?.GetType().GetField("_trayIcon", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(tray) as Forms.NotifyIcon;
                 if (icon == null) return null;
-                return new OfficialTrayBridge(tray, icon, exit);
+                return new OfficialTrayBridge(tray, icon, exit, new AutoStartMenu(AutoStartSettings.ForCurrentApplication(),
+                    error => MessageBox.Show(app.MainWindow, error.Message, "开机自启动", MessageBoxButton.OK, MessageBoxImage.Warning)));
             }
             catch (Exception error) { IntegrationDiagnostics.Write("Tray binding unavailable: " + error); return null; }
         }
 
         private void OnMouseDown(object sender, Forms.MouseEventArgs args) => Sync(_ecActive);
-        private void OnMenuOpening(object sender, CancelEventArgs args) => Sync(_ecActive);
+        private void OnMenuOpening(object sender, CancelEventArgs args)
+        {
+            Sync(_ecActive);
+            _ = _autoStart?.RefreshAsync();
+        }
 
         internal void Sync(bool ecActive)
         {
@@ -64,7 +70,12 @@ namespace IntelNucStudio.Ec
                 if (_menu != null) _menu.Opening -= OnMenuOpening;
                 _menu = _icon.ContextMenuStrip;
                 _rebound.Clear();
-                if (_menu != null) _menu.Opening += OnMenuOpening;
+                if (_menu != null)
+                {
+                    _menu.Opening += OnMenuOpening;
+                    _autoStart?.Attach(_menu);
+                    _ = _autoStart?.RefreshAsync();
+                }
             }
             if (!ecActive)
             {
@@ -72,6 +83,8 @@ namespace IntelNucStudio.Ec
                 _locked.Clear();
             }
             if (_menu == null) return;
+            // Some original menu rebuilds reuse the same ContextMenuStrip.
+            _autoStart?.Attach(_menu);
             var presets = _tray.GetType().GetField("_performancePresets", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(_tray) as IDictionary;
             foreach (Forms.ToolStripItem item in _menu.Items)
             {
@@ -111,6 +124,7 @@ namespace IntelNucStudio.Ec
             _disposed = true;
             _icon.MouseDown -= OnMouseDown;
             if (_menu != null) _menu.Opening -= OnMenuOpening;
+            _autoStart?.Dispose();
             _icon.Visible = false;
             _icon.Dispose();
             _locked.Clear();
