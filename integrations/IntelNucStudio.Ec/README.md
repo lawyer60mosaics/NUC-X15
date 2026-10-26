@@ -19,6 +19,15 @@ original close glyph and Alt+F4 hide to tray while EC continues running;
 only explicit Exit commands hand off before exiting. This version does not provide an out-of-process crash
 watchdog; forced termination cannot execute exit cleanup.
 
+Version 0.1.6 applies an industrial WPF theme to the actual official home and
+detail controls: matte navy surfaces, precise thin card frames/header separators,
+consistent typography, rectangular buttons and slider grips, dark dropdowns and
+explicit keyboard focus. The five home modules retain their original grouping.
+Original named styles are extended at runtime while preserving command/state
+bindings and editable dropdown template parts. Decorative frames cannot capture
+input and render below EC pages/masks. The EC page reflows below 900 DIP, uses dark
+scrollbars and keeps recovery controls reachable. See `docs/industrial-ui-design.md`.
+
 Version 0.1.5 adds a checked **开机自启动** item to the original tray menu.
 It creates/removes one current-user logon task through Windows `schtasks.exe`,
 runs the current official EXE with `tray` after 15 seconds, uses the interactive
@@ -67,7 +76,7 @@ manifest. Optional development startup diagnostics are enabled only when
 Verification: REA identified the actual App, MainWindow, ProfilesView and official
 close handler. Runtime diagnostics confirmed the EC DLL loaded in the original
 `NucSoftwareStudio.exe` and its MainWindow; the original five modules and service
-telemetry became available after the WCF fix. The test executable covers 32 startup, shortcut-style, curve,
+telemetry became available after the WCF fix. The test executable covers 34 startup, theme, shortcut-style, curve,
 production-loop hot-swap, thermal, input validation, WPF navigation, interlock,
 failure-recovery, partial-mask and tray scenarios with simulated EC boundaries.
 An optional original-artifact fixture binds and reproduces the actual shipped
@@ -81,7 +90,9 @@ rtk proxy integrations/IntelNucStudio.Ec.Tests/bin/Release/net48/IntelNucStudio.
 
 Adding `--task-scheduler-check` validates the generated XML with the installed
 Windows scheduler and tests missing-task lookup without registration. With both
-optional checks, 34 scenarios run. Tests use a memory task store for writes;
+optional checks, 39 scenarios run, including real vendor control-style contracts
+and all five original home BAML views with null models (no vendor services).
+Tests use a memory task store for writes;
 elevated task registration and an actual sign-in/reboot remain device checks.
 
 These tests perform no hardware writes. Real EC actuation is a separate device

@@ -47,6 +47,10 @@ namespace IntelNucStudio.Ec
             if (officialContent == null) throw new InvalidOperationException("官方窗口没有可挂接的 WPF 内容。");
             _root = FindShellGrid(officialContent);
             if (_root == null) throw new InvalidOperationException("没有找到官方主窗口的布局容器，停止加载 EC 页面。");
+            // Capture before replacing templates: the glyph visual can be
+            // temporarily detached until the next WPF layout pass.
+            var closeButton = FindCloseButton(officialContent);
+            IndustrialTheme.Install(application, window, _root);
             IntegrationDiagnostics.Write("Official content before integration: " + DescribeTree(officialContent));
 
             _entryIcon = new Image { Source = CreateEcIcon(), Width = 36, Height = 36, Margin = new Thickness(0, 0, 0, 4) };
@@ -95,7 +99,6 @@ namespace IntelNucStudio.Ec
             // view's visibility event covers removal without waiting for a timer.
             window.LayoutUpdated += (sender, args) => UpdateEntryVisibility();
             UpdateEntryVisibility();
-            var closeButton = FindCloseButton(officialContent);
             if (closeButton != null)
             {
                 // Also cover Click raised by keyboard/accessibility automation.
@@ -225,12 +228,20 @@ namespace IntelNucStudio.Ec
             presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
             presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Top);
             var surface = new FrameworkElementFactory(typeof(Border));
+            surface.Name = "EntrySurface";
             surface.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            surface.AppendChild(presenter);
-            var template = new ControlTemplate(typeof(Button)) { VisualTree = surface };
+            surface.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            surface.SetValue(Border.BorderBrushProperty, Brushes.Transparent);
+            var layout = new FrameworkElementFactory(typeof(Grid));
+            layout.AppendChild(surface);
+            layout.AppendChild(presenter);
+            var template = new ControlTemplate(typeof(Button)) { VisualTree = layout };
             var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(UIElement.OpacityProperty, 0.8));
+            hover.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#00AFE5"), "EntrySurface"));
             template.Triggers.Add(hover);
+            var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true };
+            focus.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#78DEFC"), "EntrySurface"));
+            template.Triggers.Add(focus);
             return template;
         }
 
@@ -307,23 +318,23 @@ namespace IntelNucStudio.Ec
 
         private void BuildControlMask()
         {
-            var content = new StackPanel { Width = 420, Margin = new Thickness(16), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-            content.Children.Add(new TextBlock { Text = "EC控制中", Foreground = Brush("#FF4141"), FontSize = 26, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center });
-            content.Children.Add(new TextBlock { Text = "性能调优已锁定，其余功能可正常使用。", Foreground = Brush("#E4EDF3"), FontSize = 16, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 18), TextAlignment = TextAlignment.Center });
+            var content = new StackPanel { MaxWidth = 520, Margin = new Thickness(20), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch };
+            content.Children.Add(new TextBlock { Text = "EC控制中", Foreground = Brush("#FF6B73"), FontSize = 26, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center });
+            content.Children.Add(new TextBlock { Text = "性能调优已锁定，其余功能可正常使用。", Foreground = Brush("#E8F0F6"), FontSize = 15, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 18), TextAlignment = TextAlignment.Center });
             var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center };
-            var open = new Button { Content = "返回 EC 控制", Padding = new Thickness(18, 10, 18, 10), Margin = new Thickness(8), FontSize = 16 };
+            var open = new Button { Content = "返回 EC 控制", Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(6), FontSize = 14 };
             open.Click += (sender, args) => OpenPage();
-            var stop = new Button { Content = "停止 EC 并解锁", Padding = new Thickness(18, 10, 18, 10), Margin = new Thickness(8), FontSize = 16 };
+            var stop = new Button { Content = "停止 EC 并解锁", Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(6), FontSize = 14 };
             stop.Click += async (sender, args) => await ClosePageAsync();
             buttons.Children.Add(open);
             buttons.Children.Add(stop);
             content.Children.Add(buttons);
             _controlMask = new Border
             {
-                Name = "NssEcControlMask", Background = Brush("#E610202D"),
+                Name = "NssEcControlMask", Background = Brush("#ED112130"),
                 HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
                 Visibility = Visibility.Collapsed, ClipToBounds = true,
-                Child = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, Child = content }, IsHitTestVisible = true
+                Child = content, IsHitTestVisible = true
             };
             SpanShell(_controlMask);
             Panel.SetZIndex(_controlMask, 150);
@@ -442,7 +453,7 @@ namespace IntelNucStudio.Ec
             layout.Children.Add(toolbar);
             Grid.SetRow(_page, 1);
             layout.Children.Add(_page);
-            _pageHost = new Border { Background = Brush("#243B4B"), Margin = new Thickness(0, 56, 0, 0), Child = layout };
+            _pageHost = new Border { Background = Brush("#112130"), Margin = new Thickness(0, 56, 0, 0), Child = layout };
             SpanShell(_pageHost);
             Panel.SetZIndex(_pageHost, 200);
             _root.Children.Add(_pageHost);

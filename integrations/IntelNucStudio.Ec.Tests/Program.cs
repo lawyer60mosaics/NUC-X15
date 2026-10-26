@@ -47,6 +47,12 @@ namespace IntelNucStudio.Ec.Tests
             var snapshotIndex = Array.IndexOf(args, "--snapshot-dir");
             if (snapshotIndex >= 0 && snapshotIndex + 1 < args.Length) _snapshotDirectory = args[snapshotIndex + 1];
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var inspectIndex = Array.IndexOf(args, "--inspect-theme");
+            if (inspectIndex >= 0)
+            {
+                using (var fixture = new OfficialThemeFixture(_officialDirectory)) fixture.Inspect(app, args[inspectIndex + 1]);
+                return 0;
+            }
             app.Startup += async (sender, args) =>
             {
                 try { await RunScenarios(app); }
@@ -67,6 +73,7 @@ namespace IntelNucStudio.Ec.Tests
             await EcPresetScenarios.RunAsync(Pass);
             await AutoStartScenarios.RunAsync(Pass, Array.IndexOf(Environment.GetCommandLineArgs(), "--task-scheduler-check") >= 0);
             TrayScenarios.Run(Pass, _officialDirectory);
+            await IndustrialThemeScenarios.Run(app, _officialDirectory, _snapshotDirectory, Pass);
             var performance = new MobilePerformanceMgr.Views.MobilePerformanceSummaryView { Content = new Button { Content = "Performance setting" } };
             var keyboard = new Button { Content = "Keyboard setting" };
             var cards = new Grid();
@@ -150,6 +157,9 @@ namespace IntelNucStudio.Ec.Tests
             Click(entry);
             await Pump();
             var page = Find<EcControlPage>(root, value => true);
+            var frames = Find<FrameworkElement>(root, value => value.Name == "NssIndustrialCardFrames");
+            Assert(!frames.IsHitTestVisible && Panel.GetZIndex(frames) < 150,
+                "Industrial card outlines must neither capture input nor paint above EC overlays");
             foreach (var preset in new[] { EcFanPreset.Quiet, EcFanPreset.Performance, EcFanPreset.Balanced })
             {
                 Click(Find<Button>(page, value => Equals(value.Tag, preset.ToString())));
@@ -215,6 +225,18 @@ namespace IntelNucStudio.Ec.Tests
                 "Mask should match performance card bounds, not the whole window");
             var warning = Find<TextBlock>(mask, value => value.Text == "EC控制中");
             Assert(((SolidColorBrush)warning.Foreground).Color.R > 200, "Warning should be red");
+            Assert(mask.Child is StackPanel, "Performance lock text must wrap instead of shrinking inside a Viewbox");
+            window.Width = 640;
+            await Pump();
+            foreach (var caption in new[] { "返回 EC 控制", "停止 EC 并解锁" })
+            {
+                var action = Find<Button>(mask, value => Equals(value.Content, caption));
+                var bounds = action.TransformToAncestor(mask).TransformBounds(new Rect(action.RenderSize));
+                Assert(action.FontSize >= 14 && bounds.Left >= 0 && bounds.Right <= mask.ActualWidth + 1,
+                    "Performance lock actions must remain readable and inside the narrow card");
+            }
+            window.Width = 1000;
+            await Pump();
             Pass("Active EC masks only performance and keeps keyboard controls usable");
 
             Click(Find<Button>(root, value => Equals(value.Content, "‹  返回官方主页")));

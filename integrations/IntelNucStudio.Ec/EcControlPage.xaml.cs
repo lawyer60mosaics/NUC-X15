@@ -44,6 +44,18 @@ namespace IntelNucStudio.Ec
             if (RightPercent != null) RightPercent.Text = Math.Round(RightSpeed.Value) + "%";
         }
 
+        private void LayoutSizeChanged(object sender, SizeChangedEventArgs args)
+        {
+            if (MetricsGrid == null || ControlActions == null || FixedPanel == null) return;
+            var compact = args.NewSize.Width < 900;
+            MetricsGrid.Columns = compact ? 2 : 4;
+            ControlActions.ColumnDefinitions[1].Width = compact ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+            Grid.SetColumn(FixedPanel, compact ? 0 : 1);
+            Grid.SetRow(FixedPanel, compact ? 1 : 0);
+            AutomaticPanel.Margin = compact ? new Thickness(0) : new Thickness(0, 0, 8, 0);
+            FixedPanel.Margin = compact ? new Thickness(0, 16, 0, 0) : new Thickness(8, 0, 0, 0);
+        }
+
         private void Poll()
         {
             if (_closing || _busy || !_poll.IsCompleted) return;
@@ -85,8 +97,8 @@ namespace IntelNucStudio.Ec
             foreach (var button in new[] { QuietPreset, BalancedPreset, PerformancePreset })
             {
                 var selected = active.HasValue && button.Tag.ToString() == active.Value.ToString();
-                button.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#00799D" : "#28495C"));
-                button.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#F1D54A" : "#418197"));
+                button.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#07516B" : "#122433"));
+                button.BorderBrush = (Brush)FindResource(selected ? "IconBrush" : "SeparatorBrush");
                 button.FontWeight = selected ? FontWeights.Bold : FontWeights.Normal;
             }
             PresetDescription.Text = active.HasValue ? EcFanPresets.Get(active.Value).Description

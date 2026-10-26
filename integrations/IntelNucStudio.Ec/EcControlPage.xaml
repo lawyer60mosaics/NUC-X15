@@ -1,80 +1,79 @@
 <UserControl x:Class="IntelNucStudio.Ec.EcControlPage"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- Background="#243B4B" Foreground="#EEF4F7" FontFamily="Segoe UI" FontSize="15">
+ Background="{DynamicResource MainBackgroundBrush}" Foreground="{DynamicResource MainTextBrush}"
+ FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="15" SizeChanged="LayoutSizeChanged">
  <UserControl.Resources>
-  <Style TargetType="Button">
-   <Setter Property="Foreground" Value="#FFFFFF"/>
-   <Setter Property="Background" Value="#009FCC"/>
-   <Setter Property="Padding" Value="18,9"/>
-   <Setter Property="Margin" Value="0,0,10,8"/>
-   <Setter Property="BorderThickness" Value="1"/>
-   <Setter Property="BorderBrush" Value="#418197"/>
-   <Setter Property="Template">
-    <Setter.Value><ControlTemplate TargetType="Button">
-     <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-      <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-     </Border>
-     <ControlTemplate.Triggers>
-      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#0086AD"/></Trigger>
-      <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="#FFFFFF"/></Trigger>
-      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.45"/></Trigger>
-     </ControlTemplate.Triggers>
-    </ControlTemplate></Setter.Value>
-   </Setter>
-  </Style>
-  <Style x:Key="Metric" TargetType="TextBlock"><Setter Property="FontSize" Value="29"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,9,0,0"/></Style>
+  <ResourceDictionary>
+   <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Themes/Industrial.xaml"/></ResourceDictionary.MergedDictionaries>
+   <Style TargetType="Button" BasedOn="{StaticResource IndustrialButton}"><Setter Property="Margin" Value="0,0,10,8"/></Style>
+   <Style x:Key="Metric" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="30"/><Setter Property="FontFamily" Value="Bahnschrift, Segoe UI"/>
+    <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,8,0,0"/>
+   </Style>
+   <Style x:Key="Panel" TargetType="Border">
+    <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource SeparatorBrush}"/><Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="2"/><Setter Property="Padding" Value="20"/>
+   </Style>
+   <Style x:Key="SecondaryText" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource IndustrialMutedBrush}"/>
+    <Setter Property="TextWrapping" Value="Wrap"/><Setter Property="LineHeight" Value="23"/>
+   </Style>
+  </ResourceDictionary>
  </UserControl.Resources>
- <ScrollViewer VerticalScrollBarVisibility="Auto">
-  <StackPanel Margin="24,4,24,24">
-   <TextBlock Text="EC 开启期间仅锁定性能调优，其他功能仍可使用。返回主页会保持 EC 控制；退出时交还固件自动控制。" Foreground="#B9CBD5" TextWrapping="Wrap" Margin="0,0,0,18"/>
-   <Border Background="#192D3B" Padding="22" Margin="0,0,0,16">
-    <Grid>
-     <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
-     <StackPanel><TextBlock Text="CPU 温度" Foreground="#AABFCC"/><TextBlock x:Name="CpuTemperature" Text="—" Style="{StaticResource Metric}"/></StackPanel>
-     <StackPanel Grid.Column="1"><TextBlock Text="dGPU 温度" Foreground="#AABFCC"/><TextBlock x:Name="GpuTemperature" Text="—" Style="{StaticResource Metric}"/></StackPanel>
-     <StackPanel Grid.Column="2"><TextBlock Text="左风扇" Foreground="#AABFCC"/><TextBlock x:Name="LeftRpm" Text="—" Style="{StaticResource Metric}"/></StackPanel>
-     <StackPanel Grid.Column="3"><TextBlock Text="右风扇" Foreground="#AABFCC"/><TextBlock x:Name="RightRpm" Text="—" Style="{StaticResource Metric}"/></StackPanel>
-    </Grid>
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="24,4,28,24">
+  <Grid MinHeight="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <TextBlock Text="EC 只管理风扇。返回主页后继续运行，退出程序时交还自动控制。" Style="{StaticResource SecondaryText}" Margin="0,0,0,16"/>
+   <Border Grid.Row="1" Style="{StaticResource Panel}" Padding="0">
+    <UniformGrid x:Name="MetricsGrid" Columns="4">
+     <Border Padding="20,16" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,0,1,0"><StackPanel><TextBlock Text="CPU 温度" Style="{StaticResource SecondaryText}"/><TextBlock x:Name="CpuTemperature" Text="—" Style="{StaticResource Metric}"/></StackPanel></Border>
+     <Border Padding="20,16" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,0,1,0"><StackPanel><TextBlock Text="dGPU 温度" Style="{StaticResource SecondaryText}"/><TextBlock x:Name="GpuTemperature" Text="—" Style="{StaticResource Metric}"/></StackPanel></Border>
+     <Border Padding="20,16" BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,0,1,0"><StackPanel><TextBlock Text="左风扇" Style="{StaticResource SecondaryText}"/><TextBlock x:Name="LeftRpm" Text="—" Style="{StaticResource Metric}"/></StackPanel></Border>
+     <Border Padding="20,16"><StackPanel><TextBlock Text="右风扇" Style="{StaticResource SecondaryText}"/><TextBlock x:Name="RightRpm" Text="—" Style="{StaticResource Metric}"/></StackPanel></Border>
+    </UniformGrid>
    </Border>
-   <TextBlock x:Name="ReadbackStatus" Text="正在读取硬件状态…" Foreground="#AABFCC" Margin="0,0,0,16" TextWrapping="Wrap"/>
-   <Grid x:Name="ControlActions">
+   <TextBlock Grid.Row="2" x:Name="ReadbackStatus" Text="正在读取硬件状态…" Style="{StaticResource SecondaryText}" Margin="0,12,0,20"/>
+   <Grid Grid.Row="3" x:Name="ControlActions">
+    <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
-    <Border Background="#192D3B" Padding="22" Margin="0,0,8,0">
+    <Border x:Name="AutomaticPanel" Style="{StaticResource Panel}" Margin="0,0,8,0">
      <StackPanel>
-      <TextBlock Text="自动温控" FontSize="22" Foreground="#00AFE5"/>
-      <TextBlock Text="选择档位即启用对应风扇曲线；运行中可直接切换。" Foreground="#B9CBD5" TextWrapping="Wrap" Margin="0,14,0,18"/>
+      <DockPanel><TextBlock Text="01" Foreground="{StaticResource IndustrialMutedBrush}" Margin="0,5,12,0"/><TextBlock Text="自动温控" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource IconBrush}"/></DockPanel>
+      <TextBlock Text="选择档位即可启用，运行中可直接切换。" Style="{StaticResource SecondaryText}" Margin="0,14,0,18"/>
       <WrapPanel>
-       <Button x:Name="QuietPreset" Content="静音" Tag="Quiet" Click="SelectPreset"/>
-       <Button x:Name="BalancedPreset" Content="平衡" Tag="Balanced" Click="SelectPreset"/>
-       <Button x:Name="PerformancePreset" Content="性能" Tag="Performance" Click="SelectPreset"/>
+       <Button x:Name="QuietPreset" Content="静音" Tag="Quiet" Click="SelectPreset" MinWidth="84"/>
+       <Button x:Name="BalancedPreset" Content="平衡" Tag="Balanced" Click="SelectPreset" MinWidth="84"/>
+       <Button x:Name="PerformancePreset" Content="性能" Tag="Performance" Click="SelectPreset" MinWidth="84"/>
       </WrapPanel>
-      <TextBlock x:Name="PresetDescription" Text="静音降低噪声，平衡适合日常，性能优先散热。" Foreground="#B9CBD5" TextWrapping="Wrap" Margin="0,12,0,0"/>
-      <TextBlock Text="三档只调整 EC 风扇，设备性能仍在官方性能页面设置。" Foreground="#94ACBB" TextWrapping="Wrap" Margin="0,12,0,0"/>
-      <TextBlock Text="温度保护始终启用。温度读取或写入异常时请求恢复固件自动控制。" Foreground="#94ACBB" TextWrapping="Wrap" Margin="0,16,0,0"/>
+      <TextBlock x:Name="PresetDescription" Text="静音降低噪声，平衡适合日常，性能优先散热。" Style="{StaticResource SecondaryText}" Margin="0,12,0,0"/>
+      <Border BorderBrush="{StaticResource SeparatorBrush}" BorderThickness="0,1,0,0" Margin="0,18,0,0" Padding="0,14,0,0">
+       <TextBlock Text="设备性能请在官方性能页面设置。温度保护始终开启。" Style="{StaticResource SecondaryText}"/>
+      </Border>
      </StackPanel>
     </Border>
-    <Border Grid.Column="1" Background="#192D3B" Padding="22" Margin="8,0,0,0">
+    <Border x:Name="FixedPanel" Grid.Column="1" Style="{StaticResource Panel}" Margin="8,0,0,0">
      <StackPanel>
-      <TextBlock Text="固定转速" FontSize="22" Foreground="#00AFE5"/>
-      <DockPanel Margin="0,16,0,8"><TextBlock Text="左风扇"/><TextBlock x:Name="LeftPercent" Text="40%" HorizontalAlignment="Right"/></DockPanel>
-      <Slider x:Name="LeftSpeed" Minimum="20" Maximum="100" Value="40" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="SpeedChanged"/>
-      <DockPanel Margin="0,14,0,8"><TextBlock Text="右风扇"/><TextBlock x:Name="RightPercent" Text="40%" HorizontalAlignment="Right"/></DockPanel>
-      <Slider x:Name="RightSpeed" Minimum="20" Maximum="100" Value="40" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="SpeedChanged"/>
-      <Button Content="应用固定转速" Click="ApplyFixed" HorizontalAlignment="Left" Margin="0,22,0,8"/>
-      <TextBlock Text="最低 20%；高温保护可提高请求转速。滑块值不代表硬件已确认。" Foreground="#94ACBB" TextWrapping="Wrap"/>
+      <DockPanel><TextBlock Text="02" Foreground="{StaticResource IndustrialMutedBrush}" Margin="0,5,12,0"/><TextBlock Text="固定转速" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource IconBrush}"/></DockPanel>
+      <DockPanel Margin="0,16,0,8"><TextBlock Text="左风扇"/><TextBlock x:Name="LeftPercent" Text="40%" HorizontalAlignment="Right" FontWeight="SemiBold"/></DockPanel>
+      <Slider x:Name="LeftSpeed" Style="{StaticResource IndustrialSlider}" Minimum="20" Maximum="100" Value="40" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="SpeedChanged" AutomationProperties.Name="左风扇请求转速百分比"/>
+      <DockPanel Margin="0,14,0,8"><TextBlock Text="右风扇"/><TextBlock x:Name="RightPercent" Text="40%" HorizontalAlignment="Right" FontWeight="SemiBold"/></DockPanel>
+      <Slider x:Name="RightSpeed" Style="{StaticResource IndustrialSlider}" Minimum="20" Maximum="100" Value="40" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="SpeedChanged" AutomationProperties.Name="右风扇请求转速百分比"/>
+      <Button Content="应用固定转速" Click="ApplyFixed" HorizontalAlignment="Left" Margin="0,20,0,8"/>
+      <TextBlock Text="最低 20%；高温保护可能提高转速。实际运行请看 RPM 读回。" Style="{StaticResource SecondaryText}"/>
      </StackPanel>
     </Border>
    </Grid>
-   <WrapPanel Margin="0,20,0,0">
-    <Button x:Name="ReleaseButton" Content="交还固件自动控制" Click="ReleaseControl"/>
-    <Button Content="重新读取" Click="RefreshReadback" Background="#28495C"/>
+   <WrapPanel Grid.Row="4" Margin="0,20,0,0">
+    <Button x:Name="ReleaseButton" Content="交还固件自动控制" Click="ReleaseControl" Style="{StaticResource IndustrialPrimaryButton}" Margin="0,0,10,8"/>
+    <Button Content="重新读取" Click="RefreshReadback"/>
    </WrapPanel>
-   <Border Background="#102532" Padding="16" Margin="0,10,0,0">
-    <StackPanel><TextBlock x:Name="ControlState" Text="尚未请求 EC 接管" Foreground="#00AFE5" FontWeight="SemiBold"/>
-     <TextBlock x:Name="ActionStatus" Text="进入此页仅读取状态；选择操作后才会发送风扇控制请求。" Foreground="#B9CBD5" Margin="0,8,0,0" TextWrapping="Wrap"/>
+   <Border Grid.Row="5" Style="{StaticResource Panel}" Background="{StaticResource IndustrialInputBrush}" Padding="16" Margin="0,8,0,0">
+    <StackPanel><TextBlock x:Name="ControlState" Text="尚未请求 EC 接管" Foreground="{StaticResource IconBrush}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+     <TextBlock x:Name="ActionStatus" Text="选择操作后才会发送风扇控制请求。" Style="{StaticResource SecondaryText}" Margin="0,8,0,0"/>
     </StackPanel>
    </Border>
-  </StackPanel>
+  </Grid>
  </ScrollViewer>
 </UserControl>

@@ -114,6 +114,8 @@ EC 模块提供：CPU/显卡温度与双风扇 RPM、静音/平衡/性能三档�
 点击三档按钮即可启用或切换；运行中切换不会释放 EC，转速会逐步调整。
 静音优先低噪声，平衡适合日常，性能优先散热。三档只控制风扇，不修改官方设备性能档位。
 EC 入口只在官方主页显示，采用系统监视器同款的无边框“图标在上、文字在下”样式，详情页与设置页不显示。
+主界面五大模块和原版控件使用工业主题：哑光深蓝、细边框、统一字体、深色开关/下拉框及矩形滑块把手。
+EC 页在窄窗口下自动改为单列，交还控制按钮可通过滚动到达；性能遮罩文字换行显示。
 进入 EC 页面只读取硬件。点击控制操作后才会写入。
 EC 接管时，仅性能调优模块加遮罩并显示红色“EC控制中”；系统配置、显示、键盘、灯光仍可使用。
 性能调优详情页及托盘性能预设同步锁定；其他详情页和托盘灯光功能保持可用。
@@ -135,6 +137,7 @@ EC 功能仅支持 LAPKC71E、LAPKC71F、LAPAC71H。
 如需停用 EC 扩展：退出程序后，把 NucSoftwareStudio.exe.config.original 复制为 NucSoftwareStudio.exe.config。
 '@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'EC扩展使用说明.txt') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $repoDir 'docs/official-nss-ec-integration.md') -Destination (Join-Path $OutputDirectory '功能与验收说明.md') -Force
+Copy-Item -LiteralPath (Join-Path $repoDir 'docs/industrial-ui-design.md') -Destination (Join-Path $OutputDirectory '工业界面设计说明.md') -Force
 
 $zipPath = $OutputDirectory + '.zip'
 Remove-Item -LiteralPath (Join-Path $OutputDirectory '.ec-diagnostics') -Force -ErrorAction SilentlyContinue
