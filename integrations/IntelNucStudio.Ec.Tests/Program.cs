@@ -74,6 +74,7 @@ namespace IntelNucStudio.Ec.Tests
             InstallationScenarios.Run(Pass);
             await AutoStartScenarios.RunAsync(Pass, Array.IndexOf(Environment.GetCommandLineArgs(), "--task-scheduler-check") >= 0);
             TrayScenarios.Run(Pass, _officialDirectory);
+            await LicenseConsentScenarios.Run(Pass);
             await IndustrialThemeScenarios.Run(app, _officialDirectory, _snapshotDirectory, Pass);
             var performance = new MobilePerformanceMgr.Views.MobilePerformanceSummaryView { Content = new Button { Content = "Performance setting" } };
             var keyboard = new Button { Content = "Keyboard setting" };
@@ -158,9 +159,9 @@ namespace IntelNucStudio.Ec.Tests
             Click(entry);
             await Pump();
             var page = Find<EcControlPage>(root, value => true);
-            var frames = Find<FrameworkElement>(root, value => value.Name == "NssIndustrialCardFrames");
-            Assert(!frames.IsHitTestVisible && Panel.GetZIndex(frames) < 150,
-                "Industrial card outlines must neither capture input nor paint above EC overlays");
+            foreach (UIElement child in root.Children)
+                Assert(!(child is FrameworkElement frame) || frame.Name != "NssIndustrialCardFrames",
+                    "Shell-wide drawing overlays must not cover native dialogs");
             foreach (var preset in new[] { EcFanPreset.Quiet, EcFanPreset.Performance, EcFanPreset.Balanced })
             {
                 Click(Find<Button>(page, value => Equals(value.Tag, preset.ToString())));

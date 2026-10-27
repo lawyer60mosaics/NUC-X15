@@ -65,12 +65,20 @@ namespace IntelNucStudio.Ec
             var current = string.Equals((string)exec?.Element(ns + "Command"), _exe, StringComparison.OrdinalIgnoreCase)
                 && (string)exec?.Element(ns + "Arguments") == "tray"
                 && (string)task.Element(ns + "Principals")?.Element(ns + "Principal")?.Element(ns + "RunLevel") == "HighestAvailable"
-                && (string)task.Element(ns + "Triggers")?.Element(ns + "LogonTrigger")?.Element(ns + "UserId") == _sid
+                && IsCurrentUser((string)task.Element(ns + "Triggers")?.Element(ns + "LogonTrigger")?.Element(ns + "UserId"))
                 && !string.Equals((string)task.Element(ns + "Triggers")?.Element(ns + "LogonTrigger")?.Element(ns + "Enabled"), "false", StringComparison.OrdinalIgnoreCase);
             return new AutoStartStatus(enabled && current,
                 enabled && !current ? "自启动配置与当前版本不一致。点击可更新为当前程序。"
                 : enabled ? "已开启：登录 Windows 后以管理员权限运行到托盘；EC 风扇需手动开启。"
                 : "自启动任务已停用。点击可为当前程序重新开启。");
+        }
+
+        private bool IsCurrentUser(string identity)
+        {
+            if (string.Equals(identity, _sid, StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.IsNullOrWhiteSpace(identity)) return false;
+            try { return ((SecurityIdentifier)new NTAccount(identity).Translate(typeof(SecurityIdentifier))).Value == _sid; }
+            catch (IdentityNotMappedException) { return false; }
         }
 
         public Task SetEnabledAsync(bool enabled) => Task.Run(() =>

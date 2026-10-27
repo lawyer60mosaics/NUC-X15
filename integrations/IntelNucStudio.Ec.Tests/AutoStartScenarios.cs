@@ -69,6 +69,14 @@ namespace IntelNucStudio.Ec.Tests
             Assert(!(await manager.ReadAsync()).Enabled, "Externally disabled tasks must be shown as disabled");
             pass("Older-version paths and external scheduler disablement are reflected accurately");
 
+            var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            var normalized = XElement.Parse(AutoStartSettings.BuildDefinition(exe, identity.User.Value));
+            normalized.Element(ns + "Triggers").Element(ns + "LogonTrigger").Element(ns + "UserId").Value = identity.Name;
+            store.Xml = normalized.ToString();
+            var normalizedManager = new AutoStartSettings(exe, identity.User.Value, store, () => true);
+            Assert((await normalizedManager.ReadAsync()).Enabled, "Scheduler-normalized account names must match the current user's SID");
+            pass("Windows account-name normalization does not falsely disable an existing logon task");
+
             store.Xml = null;
             var writes = store.RegisterCalls;
             admin = false;

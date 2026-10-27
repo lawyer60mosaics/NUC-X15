@@ -15,17 +15,6 @@ namespace IntelNucStudio.Ec
         private static readonly ConditionalWeakTable<Window, IndustrialTheme> Windows = new ConditionalWeakTable<Window, IndustrialTheme>();
         private readonly Dictionary<Style, Style> _styles = new Dictionary<Style, Style>();
         private readonly Dictionary<ControlTemplate, ControlTemplate> _templates = new Dictionary<ControlTemplate, ControlTemplate>();
-        private readonly ConditionalWeakTable<FrameworkElement, object> _framed = new ConditionalWeakTable<FrameworkElement, object>();
-        private CardFrames _frames;
-        private static readonly HashSet<string> Cards = new HashSet<string>
-        {
-            "MobileKeyboardSettingsMgr.Views.MobileSystemSettingsView",
-            "MobilePerformanceMgr.Views.MobilePerformanceSummaryView",
-            "MobileDisplayModeMgr.Views.MobileDisplayModeSummaryView",
-            "MobileKeyboardLedMgr.Views.KeyboardSummaryView",
-            "MobileLightBarLedMgr.Views.LightbarSummaryView"
-        };
-
         static IndustrialTheme()
         {
             EventManager.RegisterClassHandler(typeof(FrameworkElement), FrameworkElement.LoadedEvent,
@@ -53,15 +42,6 @@ namespace IntelNucStudio.Ec
                 window.Resources[key] = resources[key];
             }
             Windows.Add(window, theme);
-            if (shell != null)
-            {
-                theme._frames = new CardFrames(shell);
-                Grid.SetRowSpan(theme._frames, Math.Max(1, shell.RowDefinitions.Count));
-                Grid.SetColumnSpan(theme._frames, Math.Max(1, shell.ColumnDefinitions.Count));
-                Panel.SetZIndex(theme._frames, 40); // Below EC masks/pages, above the native cards.
-                shell.Children.Add(theme._frames);
-                window.LayoutUpdated += (sender, args) => theme._frames.Refresh();
-            }
             window.SetCurrentValue(Control.FontFamilyProperty, BodyFont);
             window.SetCurrentValue(Control.ForegroundProperty, resources["MainTextBrush"]);
             TextOptions.SetTextFormattingMode(window, TextFormattingMode.Display);
@@ -89,7 +69,8 @@ namespace IntelNucStudio.Ec
                     style.Setters.Add(new Setter(Control.ForegroundProperty, resources["MainTextBrush"]));
                 if (key == "RectangleButton")
                 {
-                    style.Setters.Add(new Setter(Control.TemplateProperty, ((Style)resources["IndustrialButton"]).Setters.FindValue(Control.TemplateProperty)));
+                    // Native buttons use their own label property in the template,
+                    // not Button.Content. Keep that template and its bindings.
                     style.Setters.Add(new Setter(Control.BackgroundProperty, resources["IndustrialInputBrush"]));
                     style.Setters.Add(new Setter(Control.ForegroundProperty, resources["MainTextBrush"]));
                     style.Setters.Add(new Setter(Control.BorderBrushProperty, resources["IconBrush"]));
@@ -130,7 +111,13 @@ namespace IntelNucStudio.Ec
             foreach (var key in new[] { "BasicToggleButton", "ComboBoxTemplate", "ComboBoxEditableTemplate", "BlueDropDownTemplate" })
                 if (window.TryFindResource(key) is ControlTemplate original)
                 {
-                    var replacement = (ControlTemplate)resources[key == "BasicToggleButton" ? "IndustrialToggleTemplate" : "IndustrialComboTemplate"];
+                    var replacement = key == "BlueDropDownTemplate"
+                        ? (ControlTemplate)((Style)resources[typeof(ComboBoxItem)]).Setters.FindValue(Control.TemplateProperty)
+                        : (ControlTemplate)resources[key == "BasicToggleButton" ? "IndustrialToggleTemplate" : "IndustrialComboTemplate"];
+                    // A dropdown and an item inside it have different template
+                    // contracts. Validate the native target before publishing a
+                    // replacement used by StaticResource/DynamicResource lookups.
+                    if (!CanApplyTemplate(replacement, original.TargetType)) continue;
                     _templates[original] = replacement;
                     resources[key] = replacement;
                 }
@@ -155,70 +142,17 @@ namespace IntelNucStudio.Ec
             // particular, never change IsEnabled/Visibility/IsChecked/Value here.
             if (element.Style != null && _styles.TryGetValue(element.Style, out var replacement))
                 element.SetCurrentValue(FrameworkElement.StyleProperty, replacement);
-            if (element is Control control && control.Template != null && _templates.TryGetValue(control.Template, out var template))
+            if (element is Control control && control.Template != null && _templates.TryGetValue(control.Template, out var template)
+                && CanApplyTemplate(template, control.GetType()))
                 control.SetCurrentValue(Control.TemplateProperty, template);
             if (element is TextBlock text && text.FontFamily.Source.StartsWith("Intel", StringComparison.OrdinalIgnoreCase))
                 text.SetCurrentValue(TextBlock.FontFamilyProperty, BodyFont);
-            if (_frames != null && Cards.Contains(element.GetType().FullName) && !_framed.TryGetValue(element, out var ignored))
-            {
-                _framed.Add(element, new object());
-                _frames.Cards.Add(new WeakReference<FrameworkElement>(element));
-            }
         }
 
-        private sealed class CardFrames : FrameworkElement
-        {
-            private readonly Grid _root;
-            private List<Rect> _bounds = new List<Rect>();
-            private List<double> _headers = new List<double>();
-            internal readonly List<WeakReference<FrameworkElement>> Cards = new List<WeakReference<FrameworkElement>>();
-            internal CardFrames(Grid root) { _root = root; Name = "NssIndustrialCardFrames"; IsHitTestVisible = false; }
-            internal void Refresh()
-            {
-                var bounds = new List<Rect>();
-                var headers = new List<double>();
-                for (var i = Cards.Count - 1; i >= 0; i--)
-                {
-                    if (!Cards[i].TryGetTarget(out var card)) { Cards.RemoveAt(i); continue; }
-                    if (!card.IsVisible || !_root.IsAncestorOf(card) || card.ActualWidth < 2 || card.ActualHeight < 2) continue;
-                    var rect = card.TransformToAncestor(_root).TransformBounds(new Rect(card.RenderSize));
-                    bounds.Add(new Rect(Math.Round(rect.X, 2), Math.Round(rect.Y, 2), Math.Round(rect.Width, 2), Math.Round(rect.Height, 2)));
-                    var header = FindHeader(card);
-                    headers.Add(header == null ? 0 : Math.Round(header.TransformToAncestor(_root).TransformBounds(new Rect(header.RenderSize)).Bottom, 2));
-                }
-                var changed = bounds.Count != _bounds.Count;
-                for (var i = 0; !changed && i < bounds.Count; i++) changed = bounds[i] != _bounds[i] || headers[i] != _headers[i];
-                if (!changed) return;
-                _bounds = bounds;
-                _headers = headers;
-                InvalidateVisual();
-            }
-            private static FrameworkElement FindHeader(DependencyObject node)
-            {
-                if (node is FrameworkElement element && element.GetType().FullName.StartsWith("Infrastructure.Controls.", StringComparison.Ordinal)
-                    && element.GetType().Name.Contains("CardTitleBar")) return element;
-                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
-                {
-                    var found = FindHeader(VisualTreeHelper.GetChild(node, i));
-                    if (found != null) return found;
-                }
-                return null;
-            }
-            protected override void OnRender(DrawingContext context)
-            {
-                for (var i = 0; i < _bounds.Count; i++)
-                {
-                    var bounds = _bounds[i];
-                    context.DrawRectangle(null, new Pen(new SolidColorBrush(Color.FromRgb(58, 84, 105)), 1),
-                        new Rect(bounds.X + 0.5, bounds.Y + 0.5, bounds.Width - 1, bounds.Height - 1));
-                    context.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(77, 108, 131)), 1),
-                        new Point(bounds.X + 1, bounds.Y + 1), new Point(bounds.Right - 1, bounds.Y + 1));
-                    if (_headers[i] > bounds.Y + 24 && _headers[i] < bounds.Bottom - 16)
-                        context.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(58, 84, 105)), 1),
-                            new Point(bounds.X + 24, _headers[i]), new Point(bounds.Right - 24, _headers[i]));
-                }
-            }
-        }
+        internal static bool CanApplyTemplate(ControlTemplate template, Type controlType) => controlType != null
+            && typeof(Control).IsAssignableFrom(controlType)
+            && (template.TargetType == null || template.TargetType.IsAssignableFrom(controlType));
+
     }
 
     internal static class ThemeSetters

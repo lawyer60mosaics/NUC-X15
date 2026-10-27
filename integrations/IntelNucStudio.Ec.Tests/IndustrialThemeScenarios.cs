@@ -51,11 +51,21 @@ namespace IntelNucStudio.Ec.Tests
                     window.Show();
                     await Pump();
                     var command = BindingOperations.GetBindingExpression(button, Button.CommandProperty);
+                    var nativeButtonTemplate = button.Template;
                     var checkedBinding = BindingOperations.GetBindingExpression(toggle, ToggleButton.IsCheckedProperty);
                     var valueBinding = BindingOperations.GetBindingExpression(slider, RangeBase.ValueProperty);
                     var theme = IndustrialTheme.Install(app, window);
                     Assert(ReferenceEquals(theme, IndustrialTheme.Install(app, window)), "Theme installation must be idempotent");
+                    foreach (var resource in new[] { new { Key = "BasicToggleButton", Target = typeof(ToggleButton) },
+                        new { Key = "ComboBoxTemplate", Target = typeof(ComboBox) }, new { Key = "ComboBoxEditableTemplate", Target = typeof(ComboBox) },
+                        new { Key = "BlueDropDownTemplate", Target = typeof(ComboBoxItem) } })
+                    {
+                        var template = (ControlTemplate)window.FindResource(resource.Key);
+                        Assert(template.TargetType.IsAssignableFrom(resource.Target),
+                            "Native template contract changed: " + resource.Key + " targets " + template.TargetType + ", expected " + resource.Target);
+                    }
                     await Pump();
+                    Assert(ReferenceEquals(button.Template, nativeButtonTemplate), "Vendor label templates must survive skinning");
                     Assert(ReferenceEquals(window.Content, root) && ReferenceEquals(command, BindingOperations.GetBindingExpression(button, Button.CommandProperty))
                         && ReferenceEquals(checkedBinding, BindingOperations.GetBindingExpression(toggle, ToggleButton.IsCheckedProperty))
                         && ReferenceEquals(valueBinding, BindingOperations.GetBindingExpression(slider, RangeBase.ValueProperty)), "Skinning must not reparent the shell or replace hardware bindings");
@@ -78,6 +88,8 @@ namespace IntelNucStudio.Ec.Tests
                     await Pump();
                     Assert(edit.IsVisible && combo.Text == "自定义配置", "Editable dropdown lost the PART_EditableTextBox contract");
                     combo.IsEditable = false;
+                    combo.ItemContainerStyle = new Style(typeof(ComboBoxItem));
+                    combo.ItemContainerStyle.Setters.Add(new Setter(Control.TemplateProperty, window.FindResource("BlueDropDownTemplate")));
                     combo.IsDropDownOpen = true;
                     await Pump();
                     var popup = (Popup)combo.Template.FindName("PART_Popup", combo);
@@ -91,6 +103,7 @@ namespace IntelNucStudio.Ec.Tests
                     Slider.IncreaseSmall.Execute(null, slider);
                     Assert(model.Value > 60, "Keyboard slider commands stopped functioning");
                     pass("Editable dropdowns, popup items, disabled state and keyboard slider commands preserve native contracts");
+                    pass("Named native dropdown item templates and original button label templates remain compatible");
                     if (snapshots != null) Save(root, Path.Combine(snapshots, "industrial-native-controls.png"));
                     window.Close();
                     var home = new Grid { Background = (Brush)app.FindResource("MainBackgroundBrush"), Margin = new Thickness(20) };
@@ -112,9 +125,43 @@ namespace IntelNucStudio.Ec.Tests
                     await Pump();
                     IndustrialTheme.Install(app, homeWindow, home);
                     await Pump();
+                    foreach (UIElement child in home.Children)
+                        Assert(!(child is FrameworkElement frame) || frame.Name != "NssIndustrialCardFrames", "Shell-wide card overlays must not paint above native dialogs");
                     Assert(homeCards.Length == 5 && top.Children.Count == 2 && bottom.Children.Count == 3,
                         "All five official home card views must remain present in their original grouping");
                     if (snapshots != null) Save(home, Path.Combine(snapshots, "industrial-official-home-empty-data.png"));
+                    var editorType = System.Reflection.Assembly.LoadFrom(Path.Combine(official, "MobileKeyboardLedMgr.dll"))
+                        .GetType("MobileKeyboardLedMgr.Controls.KeyboardProfileEditor", true);
+                    var editor = (FrameworkElement)Activator.CreateInstance(editorType);
+                    var profiles = new ProfileModel(editorType.Assembly.GetType("MobileKeyboardLedMgr.Models.Profiles.KeyboardProfile", true));
+                    editor.DataContext = profiles;
+                    bottom.Children.Add(editor);
+                    await Pump();
+                    var profileCombo = Find<ComboBox>(editor, value => true);
+                    profileCombo.IsDropDownOpen = true;
+                    await Pump();
+                    profileCombo.SelectedIndex = 1;
+                    Assert(ReferenceEquals(profiles.NewProfileBase, profiles.Profiles[1]), "Original profile base selector lost its two-way binding");
+                    profileCombo.IsDropDownOpen = false;
+                    Find<ToggleButton>(editor, value => value.Name == "NewProfileButton").IsChecked = true;
+                    var nameInput = Find<TextBox>(editor, value => value.Name == "NewProfileTextBox");
+                    nameInput.Text = "回归配置";
+                    nameInput.GetBindingExpression(TextBox.TextProperty).UpdateSource();
+                    await Pump();
+                    var add = Find<Button>(editor, value => ReferenceEquals(value.Command, profiles.AddProfile));
+                    Assert(add.IsEnabled, "Native Add button is unavailable for a valid profile name");
+                    Invoke(add);
+                    await Pump();
+                    Assert(profiles.Profiles.Count == 3 && profiles.AddCalls == 1, "Native Add command did not reach the profile model");
+                    profiles.ProfilesSelected = true;
+                    profiles.Notify(nameof(ProfileModel.ProfilesSelected));
+                    await Pump();
+                    var delete = Find<Button>(editor, value => value.Name == "DeleteButton");
+                    Assert(delete.IsEnabled, "Native Delete button lost its selection binding");
+                    Invoke(delete);
+                    await Pump();
+                    Assert(profiles.Profiles.Count == 2 && profiles.DeleteCalls == 1, "Native Delete command did not reach the profile model");
+                    pass("Original keyboard profile editor selects a base and routes add/delete through populated in-memory native profile models");
                     homeWindow.Close();
                     pass("All five original home card BAML views render with industrial styling and no vendor models/services");
                     app.Resources.Clear();
@@ -159,6 +206,44 @@ namespace IntelNucStudio.Ec.Tests
         }
 
         private static async Task Pump() { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); }
+        private static T Find<T>(DependencyObject element, Predicate<T> predicate) where T : DependencyObject
+        {
+            if (element is T value && predicate(value)) return value;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+            { var found = Find<T>(VisualTreeHelper.GetChild(element, i), predicate); if (found != null) return found; }
+            return null;
+        }
+        private static void Invoke(Button button) => typeof(Button).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(button, null);
+        public sealed class ProfileModel : INotifyPropertyChanged
+        {
+            private readonly Type _type;
+            public System.Collections.IList Profiles { get; }
+            public object NewProfileBase { get; set; }
+            private string _name = "";
+            public string NewProfileName { get => _name; set { _name = value; Notify(nameof(NewProfileName)); } }
+            public bool ProfilesSelected { get; set; }
+            public ICommand AddProfile { get; }
+            public ICommand DeleteSelectedProfiles { get; }
+            public ICommand CloseEditor { get; } = new ClickCommand(() => { });
+            public int AddCalls, DeleteCalls;
+            public ProfileModel(Type type)
+            {
+                _type = type;
+                Profiles = (System.Collections.IList)Activator.CreateInstance(typeof(System.Collections.ObjectModel.ObservableCollection<>).MakeGenericType(type));
+                Profiles.Add(Create("默认配置")); Profiles.Add(Create("自定义配置"));
+                NewProfileBase = Profiles[0];
+                AddProfile = new ClickCommand(() => { Profiles.Add(Create(NewProfileName)); AddCalls++; });
+                DeleteSelectedProfiles = new ClickCommand(() => { Profiles.RemoveAt(Profiles.Count - 1); DeleteCalls++; });
+            }
+            private object Create(string name)
+            {
+                var value = Activator.CreateInstance(_type);
+                _type.GetProperty("Name").SetValue(value, name); _type.GetProperty("IsEnabled").SetValue(value, true);
+                return value;
+            }
+            public void Notify(string property) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
+            public event PropertyChangedEventHandler PropertyChanged;
+        }
         private static void Save(FrameworkElement element, string path)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path));

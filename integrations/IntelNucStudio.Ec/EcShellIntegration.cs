@@ -51,6 +51,7 @@ namespace IntelNucStudio.Ec
             // temporarily detached until the next WPF layout pass.
             var closeButton = FindCloseButton(officialContent);
             IndustrialTheme.Install(application, window, _root);
+            LicenseConsent.Attach(window);
             IntegrationDiagnostics.Write("Official content before integration: " + DescribeTree(officialContent));
 
             _entryIcon = new Image { Source = CreateEcIcon(), Width = 36, Height = 36, Margin = new Thickness(0, 0, 0, 4) };
