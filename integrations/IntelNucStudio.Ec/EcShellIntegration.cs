@@ -19,8 +19,8 @@ namespace IntelNucStudio.Ec
         private readonly Image _entryIcon;
         private readonly TextBlock _entryCaption;
         private readonly AutoStartControl _autoStartControl;
+        private readonly HomeActionLayout _homeActions;
         private DateTime _nextAutoStartRefresh;
-        private FrameworkElement _monitorView;
         private readonly DispatcherTimer _availabilityTimer;
         private FrameworkElement _homeView;
         private Border _pageHost;
@@ -59,7 +59,7 @@ namespace IntelNucStudio.Ec
             _entryIcon = new Image { Source = CreateEcIcon(), Width = 36, Height = 36, Margin = new Thickness(0, 0, 0, 4) };
             _entryCaption = new TextBlock
             {
-                Text = "EC 风扇控制", FontSize = 12, Foreground = Brush("#00AFE5"),
+                Text = "EC 风扇控制", FontSize = 14, Foreground = Brush("#00AFE5"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.None
             };
@@ -86,17 +86,12 @@ namespace IntelNucStudio.Ec
             };
             TextOptions.SetTextFormattingMode(_entry, TextFormattingMode.Display);
             _entry.Click += (sender, args) => OpenPage();
-            SpanShell(_entry);
-            Panel.SetZIndex(_entry, 100);
-            _root.Children.Add(_entry);
             _autoStartControl = new AutoStartControl(AutoStartSettings.ForCurrentApplication())
             {
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
                 Margin = new Thickness(0, 0, 18, 12), Visibility = Visibility.Collapsed
             };
-            SpanShell(_autoStartControl);
-            Panel.SetZIndex(_autoStartControl, 100);
-            _root.Children.Add(_autoStartControl);
+            _homeActions = new HomeActionLayout(_entry, _autoStartControl);
             BuildControlMask();
             _availabilityTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _availabilityTimer.Tick += (sender, args) =>
@@ -233,15 +228,10 @@ namespace IntelNucStudio.Ec
             var context = _window.DataContext;
             var show = _homeView?.IsVisible == true && (_pageHost == null || _pageHost.Visibility != Visibility.Visible)
                 && !ReadFlag(context, "ShowEula") && !ReadFlag(context, "SettingsVisible");
+            show = show && _homeActions.Attach(_homeView);
             _entry.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             _autoStartControl.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             UpdateControlMask();
-            if (show)
-            {
-                MatchSystemMonitorEntry();
-                _autoStartControl.Width = Math.Max(220, Math.Min(336,
-                    _root.ActualWidth - _entry.Margin.Left - _entry.Width - 36));
-            }
         }
 
         private static ControlTemplate CreateModuleEntryTemplate()
@@ -276,55 +266,6 @@ namespace IntelNucStudio.Ec
             drawing.Children.Add(new GeometryDrawing(Brush("#10212C"), null, new EllipseGeometry(new Point(18, 18), 3, 3)));
             drawing.Freeze();
             return new DrawingImage(drawing);
-        }
-
-        private void MatchSystemMonitorEntry()
-        {
-            if (_monitorView == null || !_root.IsAncestorOf(_monitorView))
-                _monitorView = FindElement<FrameworkElement>(_root, value => value.GetType().FullName == "SystemMonitorMgr.Views.SystemMonitorButtonView");
-            if (_monitorView?.IsVisible != true || !_root.IsAncestorOf(_monitorView)) return;
-            var button = FindElement<Button>(_monitorView, value => true);
-            if (button == null || !_root.IsAncestorOf(button) || button.ActualWidth <= 0 || button.ActualHeight <= 0) return;
-            var bounds = button.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
-            var top = bounds.Top;
-            var gap = 4d;
-            var icon = FindElement<Image>(button, value => value.ActualWidth > 0 && value.ActualHeight > 0);
-            var iconBounds = bounds;
-            if (icon != null)
-            {
-                iconBounds = icon.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, icon.ActualWidth, icon.ActualHeight));
-                _entryIcon.Width = Math.Round(iconBounds.Width, 3);
-                _entryIcon.Height = Math.Round(iconBounds.Height, 3);
-                top = iconBounds.Top;
-            }
-            var caption = FindElement<TextBlock>(button, value => !string.IsNullOrWhiteSpace(value.Text));
-            if (caption != null)
-            {
-                var scale = caption.TransformToAncestor(_root).TransformBounds(new Rect(0, 0, 1, 1)).Height;
-                _entryCaption.FontSize = Math.Max(12, caption.FontSize * scale);
-                _entryCaption.FontFamily = caption.FontFamily;
-                _entryCaption.FontWeight = caption.FontWeight;
-                if (icon != null)
-                {
-                    var captionBounds = caption.TransformToAncestor(_root).TransformBounds(new Rect(caption.RenderSize));
-                    gap = Math.Max(4, captionBounds.Top - iconBounds.Bottom);
-                }
-            }
-            _entryIcon.Margin = new Thickness(0, 0, 0, gap);
-            // The official button's allocated width may be narrower than its own
-            // caption. Measure our longer caption independently of that allocation;
-            // copying the fixed width clips both ends under the original Viewbox.
-            var text = new FormattedText(_entryCaption.Text, _entryCaption.Language.GetEquivalentCulture(),
-                _entryCaption.FlowDirection, new Typeface(_entryCaption.FontFamily, _entryCaption.FontStyle,
-                    _entryCaption.FontWeight, _entryCaption.FontStretch), _entryCaption.FontSize,
-                _entryCaption.Foreground, null, TextFormattingMode.Display, VisualTreeHelper.GetDpi(_entryCaption).PixelsPerDip);
-            _entry.VerticalAlignment = VerticalAlignment.Top;
-            _entry.Width = Math.Ceiling(Math.Max(bounds.Width, Math.Max(_entryIcon.Width, text.WidthIncludingTrailingWhitespace) + 16));
-            _entry.Height = Math.Ceiling(_entryIcon.Height + gap + text.Height + 4);
-            // Keep the complete caption above the window edge when a smaller
-            // home scale leaves less footer space than the minimum readable text.
-            top = Math.Max(0, Math.Min(top, _root.ActualHeight - _entry.Height));
-            _entry.Margin = new Thickness(Math.Round(bounds.Right + Math.Max(12, _entryIcon.Width * 0.5), 3), Math.Round(top, 3), 0, 0);
         }
 
         private static T FindElement<T>(DependencyObject node, Predicate<T> matches) where T : DependencyObject

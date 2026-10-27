@@ -97,8 +97,14 @@ namespace IntelNucStudio.Ec.Tests
             homeLayout.RowDefinitions.Add(new RowDefinition());
             homeLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             homeLayout.Children.Add(cards);
-            Grid.SetRow(monitor, 1);
-            homeLayout.Children.Add(monitor);
+            var footer = new Grid();
+            footer.ColumnDefinitions.Add(new ColumnDefinition());
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var nativeButtons = new ItemsControl { Name = "ButtonContent" };
+            nativeButtons.Items.Add(monitor);
+            footer.Children.Add(nativeButtons);
+            Grid.SetRow(footer, 1);
+            homeLayout.Children.Add(footer);
             var home = new FeatureMgr.Views.ProfilesView { Content = homeLayout };
             var officialRegion = new ContentControl { Content = home };
             var close = new Button { Content = new TextBlock { Text = "\uE106" } };
@@ -124,7 +130,7 @@ namespace IntelNucStudio.Ec.Tests
             var entryIcon = Find<Image>(entry, value => true);
             var entryLabel = Find<TextBlock>(entry, value => value.Text == "EC 风扇控制");
             Assert(entry.BorderThickness == new Thickness(0) && entryIcon.Width == 36 && entryIcon.Height == 36
-                && entryLabel.FontSize == 12 && entry.Margin.Left > monitor.ActualWidth,
+                && entryLabel.FontSize == 14 && ReferenceEquals(entry.Parent, footer),
                 "EC shortcut must match the icon/caption monitor style beside the original shortcut");
             Pass("EC shortcut matches the system monitor icon/caption style without a frame");
             Assert(((SolidColorBrush)entryLabel.Foreground).Color == Color.FromRgb(0, 175, 229),
@@ -329,9 +335,9 @@ namespace IntelNucStudio.Ec.Tests
             foreach (var scale in new[] { 0.75, 1d, 1.25, 1.5, 2d })
             {
                 window.Width = width;
-                monitor.Width = 64;
+                monitor.Width = 100;
                 nativeLabel.FontSize = 14;
-                monitor.LayoutTransform = new ScaleTransform(scale, scale);
+                root.LayoutTransform = new ScaleTransform(scale, scale);
                 await Pump();
                 root.UpdateLayout();
                 await Pump();
@@ -353,11 +359,9 @@ namespace IntelNucStudio.Ec.Tests
                 var iconBounds = icon.TransformToAncestor(root).TransformBounds(new Rect(icon.RenderSize));
                 Assert(entryBounds.Right <= root.ActualWidth + 1 && entryBounds.Bottom <= root.ActualHeight + 1,
                     "Shortcut escaped the viewport at " + width + "/" + scale + ": " + entryBounds + "; root=" + root.RenderSize);
-                var alignedTop = Math.Max(0, Math.Min(nativeIconBounds.Top, root.ActualHeight - entry.Height));
-                Assert(label.FontSize >= 12 && Math.Abs(iconBounds.Top - alignedTop) < 1,
-                    "Shortcut should retain readable text and align with the monitor icon at " + width + "/" + scale
-                    + "; font=" + label.FontSize + "; iconTop=" + iconBounds.Top + "; expected=" + alignedTop
-                    + "; margin=" + entry.Margin + "; entry=" + entryBounds + "; nativeIcon=" + nativeIconBounds);
+                Assert(label.FontSize >= 14 && icon.Width == 36 && entryBounds.Top >= 0
+                    && startupBounds.Bottom <= root.ActualHeight + 1,
+                    "Reserved footer must keep actions readable and within the viewport at " + width + "/" + scale);
                 if (_snapshotDirectory != null && width == 640)
                 {
                     System.IO.Directory.CreateDirectory(_snapshotDirectory);
@@ -381,7 +385,7 @@ namespace IntelNucStudio.Ec.Tests
             }
             window.Width = 1000;
             monitor.Width = 100;
-            monitor.LayoutTransform = Transform.Identity;
+            root.LayoutTransform = Transform.Identity;
             nativeLabel.FontSize = 12;
             await Pump();
             Pass("EC caption stays readable and unclipped across 15 window/scale combinations");

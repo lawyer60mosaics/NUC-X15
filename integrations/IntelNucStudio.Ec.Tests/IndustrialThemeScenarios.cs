@@ -117,6 +117,27 @@ namespace IntelNucStudio.Ec.Tests
                     homeWindow.Show();
                     await Pump();
                     var homeCards = fixture.LoadHomeCards(app);
+                    if (snapshots != null) File.WriteAllText(Path.Combine(snapshots, "native-performance.xaml"), System.Windows.Markup.XamlWriter.Save(homeCards[1]));
+                    var nativeHome = fixture.LoadProfilesView();
+                    if (snapshots != null) File.WriteAllText(Path.Combine(snapshots, "native-home.xaml"), System.Windows.Markup.XamlWriter.Save(nativeHome));
+                    var monitorAssembly = System.Reflection.Assembly.LoadFrom(Path.Combine(official, "SystemMonitorMgr.dll"));
+                    foreach (var converter in monitorAssembly.GetTypes())
+                        if (converter.Namespace == "SystemMonitorMgr.Converters" && converter.GetConstructor(Type.EmptyTypes) != null)
+                            app.Resources[converter.Name] = Activator.CreateInstance(converter);
+                    var gauge = (FrameworkElement)Activator.CreateInstance(monitorAssembly.GetType("SystemMonitorMgr.Views.GaugeControl", true));
+                    var gaugeContextType = monitorAssembly.GetType("SystemMonitorMgr.Models.UsageGaugeDataContext", true);
+                    var gaugeConstructor = gaugeContextType.GetConstructors()[0];
+                    var gaugeEnum = gaugeConstructor.GetParameters()[0].ParameterType;
+                    gauge.DataContext = gaugeConstructor.Invoke(new object[] { Enum.ToObject(gaugeEnum, 0), null, 37d, 61 });
+                    var gaugeHost = new Viewbox { Child = gauge };
+                    var gaugeWindow = new Window { Content = gaugeHost, Width = 400, Height = 400, Left = -15000, Top = -15000, Opacity = 0, ShowInTaskbar = false };
+                    gaugeWindow.Show();
+                    await Pump();
+                    var gaugeText = Find<TextBlock>(gauge, value => BindingOperations.GetBinding(value, TextBlock.TextProperty)?.Path?.Path == "PercentageString");
+                    Assert(gaugeText.Text.Contains("37"), "Native gauge percentage must survive theme application");
+                    if (snapshots != null) Save(gaugeHost, Path.Combine(snapshots, "native-gauge-populated.png"));
+                    gaugeWindow.Close();
+                    if (snapshots != null) File.WriteAllText(Path.Combine(snapshots, "native-gauge.xaml"), System.Windows.Markup.XamlWriter.Save(gauge));
                     for (var i = 0; i < homeCards.Length; i++)
                     {
                         homeCards[i].Margin = new Thickness(8);
@@ -130,6 +151,49 @@ namespace IntelNucStudio.Ec.Tests
                     Assert(homeCards.Length == 5 && top.Children.Count == 2 && bottom.Children.Count == 3,
                         "All five official home card views must remain present in their original grouping");
                     if (snapshots != null) Save(home, Path.Combine(snapshots, "industrial-official-home-empty-data.png"));
+                    top.Children.Clear(); bottom.Children.Clear();
+                    var nativeData = (Grid)nativeHome.FindName("Data");
+                    ((Grid)((UserControl)nativeHome).Content).Children[0].Visibility = Visibility.Collapsed;
+                    var rows = new System.Collections.Generic.List<ItemsControl>();
+                    foreach (UIElement child in nativeData.Children) if (child is ItemsControl items) rows.Add(items);
+                    for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+                    {
+                        BindingOperations.ClearBinding(rows[rowIndex], ItemsControl.ItemsSourceProperty);
+                        rows[rowIndex].ItemTemplate = null;
+                        for (var index = (rowIndex == 0 ? 0 : 2); index < (rowIndex == 0 ? 2 : 5); index++) rows[rowIndex].Items.Add(homeCards[index]);
+                    }
+                    var nativeButtons = (ItemsControl)nativeHome.FindName("ButtonContent");
+                    BindingOperations.ClearBinding(nativeButtons, ItemsControl.ItemsSourceProperty);
+                    nativeButtons.ItemTemplate = null;
+                    nativeButtons.Items.Add(new Button { Content = "系统监视器", Width = 104, Height = 72 });
+                    var nativeWindow = new Window { Content = nativeHome, Width = 1740, Height = 1000,
+                        Left = -15000, Top = -15000, Opacity = 0, ShowInTaskbar = false };
+                    app.MainWindow = nativeWindow;
+                    nativeWindow.Show();
+                    await Pump();
+                    var homeEntry = new Button { Content = "EC 风扇控制" };
+                    var homeStartup = new AutoStartControl(new MemoryAutoStartSettings());
+                    var actions = new HomeActionLayout(homeEntry, homeStartup);
+                    Assert(actions.Attach(nativeHome), "Actual shipped ProfilesView footer was not found");
+                    foreach (var size in new[] { new Size(1740, 1000), new Size(1280, 800), new Size(1000, 700), new Size(800, 600) })
+                    {
+                        nativeWindow.Width = size.Width; nativeWindow.Height = size.Height;
+                        nativeWindow.UpdateLayout(); await Pump();
+                        var footer = (Grid)nativeButtons.Parent;
+                        var footerBounds = footer.TransformToAncestor(nativeHome).TransformBounds(new Rect(footer.RenderSize));
+                        var startupBounds = homeStartup.TransformToAncestor(nativeHome).TransformBounds(new Rect(homeStartup.RenderSize));
+                        var entryBounds = homeEntry.TransformToAncestor(nativeHome).TransformBounds(new Rect(homeEntry.RenderSize));
+                        Assert(footerBounds.Bottom <= nativeHome.ActualHeight + 1 && startupBounds.Bottom <= nativeHome.ActualHeight + 1
+                            && !startupBounds.IntersectsWith(entryBounds), "Real native home footer clips or overlaps at " + size);
+                        foreach (var row in rows)
+                        {
+                            var cardBounds = row.TransformToAncestor(nativeHome).TransformBounds(new Rect(row.RenderSize));
+                            Assert(cardBounds.Bottom <= footerBounds.Top + 1, "Footer must reserve space below the native cards");
+                        }
+                        if (snapshots != null) Save(nativeHome, Path.Combine(snapshots, "native-home-reserved-footer-" + (int)size.Width + ".png"));
+                    }
+                    nativeWindow.Close();
+                    pass("Actual shipped ProfilesView reserves a footer row below all five native cards across four window sizes");
                     var editorType = System.Reflection.Assembly.LoadFrom(Path.Combine(official, "MobileKeyboardLedMgr.dll"))
                         .GetType("MobileKeyboardLedMgr.Controls.KeyboardProfileEditor", true);
                     var editor = (FrameworkElement)Activator.CreateInstance(editorType);

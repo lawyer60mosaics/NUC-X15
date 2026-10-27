@@ -5,7 +5,7 @@
   <LangVersion>latest</LangVersion>
   <AssemblyName>NUCtool.Studio.Launcher</AssemblyName>
   <RootNamespace>NUCtool.Studio.Launcher</RootNamespace>
-  <Version>0.1.9</Version>
+  <Version>0.1.10</Version>
   <ApplicationManifest>app.manifest</ApplicationManifest>
   <Prefer32Bit>false</Prefer32Bit>
  </PropertyGroup>

@@ -46,7 +46,7 @@ namespace IntelNucStudio.Ec.Tests
             provider.GetMethod("SetDefaultViewModelFactory", new[] { typeof(Func<Type, object>) })
                 .Invoke(null, new object[] { new Func<Type, object>(type => null) });
             var assemblies = new List<Assembly> { Assembly.LoadFrom(Path.Combine(_directory, "Infrastructure.dll")) };
-            foreach (var name in new[] { "MobileKeyboardSettingsMgr", "MobileBatterySettingsMgr", "MobilePerformanceMgr", "MobileDisplayModeMgr", "MobileKeyboardLedMgr", "MobileLightBarLedMgr" })
+            foreach (var name in new[] { "SystemMonitorMgr", "FeatureMgr", "MobileKeyboardSettingsMgr", "MobileBatterySettingsMgr", "MobilePerformanceMgr", "MobileDisplayModeMgr", "MobileKeyboardLedMgr", "MobileLightBarLedMgr" })
                 assemblies.Add(Assembly.LoadFrom(Path.Combine(_directory, name + ".dll")));
             foreach (var assembly in assemblies)
             {
@@ -75,6 +75,9 @@ namespace IntelNucStudio.Ec.Tests
             }
             return result.ToArray();
         }
+
+        internal FrameworkElement LoadProfilesView() => (FrameworkElement)Activator.CreateInstance(
+            Assembly.LoadFrom(Path.Combine(_directory, "FeatureMgr.dll")).GetType("FeatureMgr.Views.ProfilesView", true));
 
         internal void Inspect(Application app, string output)
         {
