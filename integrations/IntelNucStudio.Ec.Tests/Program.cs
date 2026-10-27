@@ -116,6 +116,8 @@ namespace IntelNucStudio.Ec.Tests
                 () => new EcControlPage(_controller = new FakeController(), () => { }), error => releaseError = error);
             await Pump();
             var entry = Find<Button>(root, value => value.Name == "NssEcModuleEntry");
+            var startup = Find<AutoStartControl>(root, value => true);
+            Assert(startup.Visibility == Visibility.Visible, "Startup control must be directly discoverable on home");
             Assert(entry.Visibility == Visibility.Visible, "Entry should be visible on the home view");
             Assert(ReferenceEquals(window.Content, root), "Integration must not reparent official Window.Content");
             Pass("Home-only entry preserves the official visual tree");
@@ -146,6 +148,7 @@ namespace IntelNucStudio.Ec.Tests
             officialRegion.Content = new FeatureMgr.Views.DetailView();
             await Pump();
             Assert(entry.Visibility == Visibility.Collapsed, "Entry leaked into a detail view");
+            Assert(startup.Visibility == Visibility.Collapsed, "Startup footer must not overlap detail views");
             officialRegion.Content = home;
             flags.SettingsVisible = true;
             await Pump();
@@ -342,6 +345,10 @@ namespace IntelNucStudio.Ec.Tests
                     "EC caption clipped at window " + width + ", scale " + scale
                     + "; text=" + text.WidthIncludingTrailingWhitespace + "; label=" + labelBounds + "; entry=" + entry.RenderSize);
                 var entryBounds = entry.TransformToAncestor(root).TransformBounds(new Rect(entry.RenderSize));
+                var startup = Find<AutoStartControl>(root, value => true);
+                var startupBounds = startup.TransformToAncestor(root).TransformBounds(new Rect(startup.RenderSize));
+                Assert(startupBounds.Left >= 0 && startupBounds.Right <= root.ActualWidth + 1
+                    && !startupBounds.IntersectsWith(entryBounds), "Startup footer overlaps the EC entry or escapes the viewport at " + width + "/" + scale);
                 var nativeIconBounds = nativeIcon.TransformToAncestor(root).TransformBounds(new Rect(nativeIcon.RenderSize));
                 var iconBounds = icon.TransformToAncestor(root).TransformBounds(new Rect(icon.RenderSize));
                 Assert(entryBounds.Right <= root.ActualWidth + 1 && entryBounds.Bottom <= root.ActualHeight + 1,

@@ -18,6 +18,8 @@ namespace IntelNucStudio.Ec
         private readonly Button _entry;
         private readonly Image _entryIcon;
         private readonly TextBlock _entryCaption;
+        private readonly AutoStartControl _autoStartControl;
+        private DateTime _nextAutoStartRefresh;
         private FrameworkElement _monitorView;
         private readonly DispatcherTimer _availabilityTimer;
         private FrameworkElement _homeView;
@@ -87,11 +89,24 @@ namespace IntelNucStudio.Ec
             SpanShell(_entry);
             Panel.SetZIndex(_entry, 100);
             _root.Children.Add(_entry);
+            _autoStartControl = new AutoStartControl(AutoStartSettings.ForCurrentApplication())
+            {
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 18, 12), Visibility = Visibility.Collapsed
+            };
+            SpanShell(_autoStartControl);
+            Panel.SetZIndex(_autoStartControl, 100);
+            _root.Children.Add(_autoStartControl);
             BuildControlMask();
             _availabilityTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _availabilityTimer.Tick += (sender, args) =>
             {
                 UpdateEntryVisibility();
+                if (_autoStartControl.IsVisible && DateTime.UtcNow >= _nextAutoStartRefresh)
+                {
+                    _nextAutoStartRefresh = DateTime.UtcNow.AddSeconds(10);
+                    _ = _autoStartControl.RefreshAsync();
+                }
                 if (_trayBridge == null) _trayBridge = OfficialTrayBridge.TryAttach(_application, ExitApplicationAsync);
                 _trayBridge?.Sync(_page?.HasControlRequest == true);
             };
@@ -219,8 +234,14 @@ namespace IntelNucStudio.Ec
             var show = _homeView?.IsVisible == true && (_pageHost == null || _pageHost.Visibility != Visibility.Visible)
                 && !ReadFlag(context, "ShowEula") && !ReadFlag(context, "SettingsVisible");
             _entry.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            _autoStartControl.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             UpdateControlMask();
-            if (show) MatchSystemMonitorEntry();
+            if (show)
+            {
+                MatchSystemMonitorEntry();
+                _autoStartControl.Width = Math.Max(220, Math.Min(336,
+                    _root.ActualWidth - _entry.Margin.Left - _entry.Width - 36));
+            }
         }
 
         private static ControlTemplate CreateModuleEntryTemplate()

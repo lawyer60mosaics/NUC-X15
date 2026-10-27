@@ -93,6 +93,20 @@ namespace IntelNucStudio.Ec.Tests
             pass("Missing admin rights, unrelated tasks and missing executables are rejected before writes");
 
             var fake = new MemoryAutoStartSettings();
+            var panel = new AutoStartControl(fake);
+            await panel.RefreshAsync();
+            var toggle = (System.Windows.Controls.Primitives.ToggleButton)((System.Windows.Controls.Grid)panel.Child).Children[1];
+            var status = (System.Windows.Controls.TextBlock)((System.Windows.Controls.Grid)panel.Child).Children[2];
+            Assert(toggle.IsChecked == false && status.Text.Contains("未开启"), "Home must display actual disabled state");
+            await panel.ToggleAsync();
+            Assert(toggle.IsChecked == true && fake.Enabled && status.Text.Contains("已开启"), "Home must confirm enable by readback");
+            fake.FailSet = true;
+            await panel.ToggleAsync();
+            Assert(toggle.IsChecked == true && toggle.IsEnabled && status.Text.Contains("操作未完成"), "Home must retain actual state and show failure inline");
+            fake.FailSet = false;
+            await panel.ToggleAsync();
+            Assert(toggle.IsChecked == false && !fake.Enabled, "Home must support disabling the same startup task");
+            pass("Visible home startup switch reads actual state, confirms writes and retains state on failure");
             Exception reported = null;
             using (var tray = new TestOfficialTray())
             using (var menu = new AutoStartMenu(fake, error => reported = error))

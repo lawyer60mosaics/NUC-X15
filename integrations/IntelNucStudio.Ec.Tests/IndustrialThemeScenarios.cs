@@ -162,6 +162,26 @@ namespace IntelNucStudio.Ec.Tests
                     await Pump();
                     Assert(profiles.Profiles.Count == 2 && profiles.DeleteCalls == 1, "Native Delete command did not reach the profile model");
                     pass("Original keyboard profile editor selects a base and routes add/delete through populated in-memory native profile models");
+                    var startupSettings = new MemoryAutoStartSettings();
+                    var startup = new AutoStartControl(startupSettings);
+                    var startupWindow = new Window { Content = startup, Background = (Brush)app.FindResource("MainBackgroundBrush"),
+                        Width = 380, Height = 160, Left = -15000, Top = -15000, Opacity = 0, ShowInTaskbar = false };
+                    startupWindow.Show();
+                    foreach (var width in new[] { 220d, 280d, 336d })
+                    {
+                        startup.Width = width;
+                        await startup.RefreshAsync();
+                        await Pump();
+                        var switchControl = Find<ToggleButton>(startup, value => value.Name == "AutoStartToggle");
+                        var switchBounds = switchControl.TransformToAncestor(startup).TransformBounds(new Rect(switchControl.RenderSize));
+                        Assert(switchBounds.Left >= 0 && switchBounds.Right <= startup.ActualWidth + 1, "Startup switch clipped at " + width);
+                        if (snapshots != null) Save(startup, Path.Combine(snapshots, "home-startup-" + (int)width + ".png"));
+                    }
+                    await startup.ToggleAsync();
+                    await Pump();
+                    if (snapshots != null) Save(startup, Path.Combine(snapshots, "home-startup-enabled.png"));
+                    startupWindow.Close();
+                    pass("Home startup status and keyboard-focusable switch remain readable at three footer widths");
                     homeWindow.Close();
                     pass("All five original home card BAML views render with industrial styling and no vendor models/services");
                     app.Resources.Clear();
@@ -248,7 +268,14 @@ namespace IntelNucStudio.Ec.Tests
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             var bitmap = new RenderTargetBitmap((int)Math.Ceiling(element.ActualWidth), (int)Math.Ceiling(element.ActualHeight), 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(element);
+            var drawing = new DrawingVisual();
+            using (var context = drawing.RenderOpen())
+            {
+                var area = new Rect(0, 0, element.ActualWidth, element.ActualHeight);
+                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(17, 33, 48)), null, area);
+                context.DrawRectangle(new VisualBrush(element) { Stretch = Stretch.Fill }, null, area);
+            }
+            bitmap.Render(drawing);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
             using (var stream = File.Create(path)) encoder.Save(stream);
         }
