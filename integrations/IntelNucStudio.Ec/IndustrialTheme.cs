@@ -44,7 +44,9 @@ namespace IntelNucStudio.Ec
             Windows.Add(window, theme);
             window.SetCurrentValue(Control.FontFamilyProperty, BodyFont);
             window.SetCurrentValue(Control.ForegroundProperty, resources["MainTextBrush"]);
-            TextOptions.SetTextFormattingMode(window, TextFormattingMode.Display);
+            // Native pages scale their controls with Viewboxes. Ideal retains
+            // glyph geometry at fractional scales, including button captions.
+            TextOptions.SetTextFormattingMode(window, TextFormattingMode.Ideal);
             TextOptions.SetTextRenderingMode(window, TextRenderingMode.Auto);
             if (window.Content is DependencyObject root) theme.ApplyTree(root);
             return theme;
@@ -67,15 +69,16 @@ namespace IntelNucStudio.Ec
                     style.Setters.Add(new Setter(Control.FocusVisualStyleProperty, resources["IndustrialFocus"]));
                 if (typeof(CheckBox).IsAssignableFrom(original.TargetType) || typeof(RadioButton).IsAssignableFrom(original.TargetType))
                     style.Setters.Add(new Setter(Control.ForegroundProperty, resources["MainTextBrush"]));
-                if (key == "RectangleButton")
+                if (key == "RectangleButton" || key == "GeneralButton" || key == "TransparentButton" || key == "HyperlinkButton")
                 {
-                    // Native buttons use their own label property in the template,
-                    // not Button.Content. Keep that template and its bindings.
+                    // Vendor captions live in Tag, while extension controls use
+                    // Content. The shared template preserves both contracts.
+                    style.Setters.Add(new Setter(Control.TemplateProperty, ((Style)resources["IndustrialButton"]).Setters.FindValue(Control.TemplateProperty)));
                     style.Setters.Add(new Setter(Control.BackgroundProperty, resources["IndustrialInputBrush"]));
                     style.Setters.Add(new Setter(Control.ForegroundProperty, resources["MainTextBrush"]));
                     style.Setters.Add(new Setter(Control.BorderBrushProperty, resources["IconBrush"]));
                     style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
-                    style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(16, 8, 16, 8)));
+                    style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(12, 4, 12, 4)));
                 }
                 if (key == "OnOffToggle") style.Setters.Add(new Setter(Control.TemplateProperty, resources["IndustrialToggleTemplate"]));
                 if (key == "SliderThumbStyle" || key == "KCSliderThumbStyle")
@@ -138,6 +141,13 @@ namespace IntelNucStudio.Ec
 
         private void ApplyElement(FrameworkElement element)
         {
+            // Display pixel snapping drops the percentage glyphs inside the
+            // vendor's nested UsageGaugeControl Viewboxes. Keep vector metrics
+            // for this native subtree; the rest of the shell may use Display.
+            if (element.GetType().FullName == "SystemMonitorMgr.Views.GaugeControl"
+                || element.GetType().FullName == "SystemMonitorMgr.Views.UsageGaugeControl"
+                || element.GetType().FullName == "SystemMonitorMgr.Views.RightSideUsageGaugeControl")
+                TextOptions.SetTextFormattingMode(element, TextFormattingMode.Ideal);
             // SetCurrentValue preserves vendor bindings, commands and state. In
             // particular, never change IsEnabled/Visibility/IsChecked/Value here.
             if (element.Style != null && _styles.TryGetValue(element.Style, out var replacement))

@@ -51,7 +51,6 @@ namespace IntelNucStudio.Ec.Tests
                     window.Show();
                     await Pump();
                     var command = BindingOperations.GetBindingExpression(button, Button.CommandProperty);
-                    var nativeButtonTemplate = button.Template;
                     var checkedBinding = BindingOperations.GetBindingExpression(toggle, ToggleButton.IsCheckedProperty);
                     var valueBinding = BindingOperations.GetBindingExpression(slider, RangeBase.ValueProperty);
                     var theme = IndustrialTheme.Install(app, window);
@@ -65,7 +64,15 @@ namespace IntelNucStudio.Ec.Tests
                             "Native template contract changed: " + resource.Key + " targets " + template.TargetType + ", expected " + resource.Target);
                     }
                     await Pump();
-                    Assert(ReferenceEquals(button.Template, nativeButtonTemplate), "Vendor label templates must survive skinning");
+                    Assert(button.Template == ((Style)window.FindResource("IndustrialButton")).Setters.FindValue(Control.TemplateProperty), "Vendor text buttons must share the common template");
+                    var nativeCaption = new Button { Tag = "同意", Style = (Style)window.FindResource("RectangleButton") };
+                    content.Children.Add(nativeCaption);
+                    await Pump();
+                    var caption = (ContentPresenter)nativeCaption.Template.FindName("ButtonLabel", nativeCaption);
+                    Assert(Equals(caption.Content, "同意"), "Native Tag-based dialog captions must stay visible");
+                    nativeCaption.Tag = "重置";
+                    await Pump();
+                    Assert(Equals(caption.Content, "重置"), "Native caption updates must retain their binding");
                     Assert(ReferenceEquals(window.Content, root) && ReferenceEquals(command, BindingOperations.GetBindingExpression(button, Button.CommandProperty))
                         && ReferenceEquals(checkedBinding, BindingOperations.GetBindingExpression(toggle, ToggleButton.IsCheckedProperty))
                         && ReferenceEquals(valueBinding, BindingOperations.GetBindingExpression(slider, RangeBase.ValueProperty)), "Skinning must not reparent the shell or replace hardware bindings");
@@ -103,7 +110,7 @@ namespace IntelNucStudio.Ec.Tests
                     Slider.IncreaseSmall.Execute(null, slider);
                     Assert(model.Value > 60, "Keyboard slider commands stopped functioning");
                     pass("Editable dropdowns, popup items, disabled state and keyboard slider commands preserve native contracts");
-                    pass("Named native dropdown item templates and original button label templates remain compatible");
+                    pass("Native Tag captions and extension Content labels share a common button template without losing bindings");
                     if (snapshots != null) Save(root, Path.Combine(snapshots, "industrial-native-controls.png"));
                     window.Close();
                     var home = new Grid { Background = (Brush)app.FindResource("MainBackgroundBrush"), Margin = new Thickness(20) };
@@ -124,7 +131,7 @@ namespace IntelNucStudio.Ec.Tests
                     foreach (var converter in monitorAssembly.GetTypes())
                         if (converter.Namespace == "SystemMonitorMgr.Converters" && converter.GetConstructor(Type.EmptyTypes) != null)
                             app.Resources[converter.Name] = Activator.CreateInstance(converter);
-                    var gauge = (FrameworkElement)Activator.CreateInstance(monitorAssembly.GetType("SystemMonitorMgr.Views.GaugeControl", true));
+                    var gauge = (FrameworkElement)Activator.CreateInstance(monitorAssembly.GetType("SystemMonitorMgr.Views.UsageGaugeControl", true));
                     var gaugeContextType = monitorAssembly.GetType("SystemMonitorMgr.Models.UsageGaugeDataContext", true);
                     var gaugeConstructor = gaugeContextType.GetConstructors()[0];
                     var gaugeEnum = gaugeConstructor.GetParameters()[0].ParameterType;
@@ -132,10 +139,31 @@ namespace IntelNucStudio.Ec.Tests
                     var gaugeHost = new Viewbox { Child = gauge };
                     var gaugeWindow = new Window { Content = gaugeHost, Width = 400, Height = 400, Left = -15000, Top = -15000, Opacity = 0, ShowInTaskbar = false };
                     gaugeWindow.Show();
+                    IndustrialTheme.Install(app, gaugeWindow);
+                    var innerGrid = new Grid { Width = 536, Height = 395 };
+                    gaugeHost.Child = null;
+                    gauge.Width = gauge.Height = 336;
+                    innerGrid.Children.Add(gauge);
+                    var outerGrid = new Grid { Width = 835, Height = 355 };
+                    outerGrid.Children.Add(new Viewbox { Width = 244, Height = 180, Child = innerGrid });
+                    gaugeHost.Child = outerGrid;
                     await Pump();
                     var gaugeText = Find<TextBlock>(gauge, value => BindingOperations.GetBinding(value, TextBlock.TextProperty)?.Path?.Path == "PercentageString");
                     Assert(gaugeText.Text.Contains("37"), "Native gauge percentage must survive theme application");
+                    var nativeGauge = Find<FrameworkElement>(gauge, value => value.GetType().FullName == "SystemMonitorMgr.Views.GaugeControl");
+                    Assert(TextOptions.GetTextFormattingMode(nativeGauge) == TextFormattingMode.Ideal,
+                        "Native nested gauge must opt out of Display text snapping");
+                    var fixedPixels = LightPixels(gaugeHost);
+                    TextOptions.SetTextFormattingMode(nativeGauge, TextFormattingMode.Display);
+                    TextOptions.SetTextFormattingMode(gauge, TextFormattingMode.Display);
+                    await Pump();
+                    var brokenPixels = LightPixels(gaugeHost);
+                    Assert(fixedPixels > brokenPixels + 100, "Pixel regression must reproduce disappearing percentage glyphs: fixed=" + fixedPixels + ", broken=" + brokenPixels);
+                    TextOptions.SetTextFormattingMode(nativeGauge, TextFormattingMode.Ideal);
+                    TextOptions.SetTextFormattingMode(gauge, TextFormattingMode.Ideal);
+                    await Pump();
                     if (snapshots != null) Save(gaugeHost, Path.Combine(snapshots, "native-gauge-populated.png"));
+                    pass("Native nested gauge reproduces missing glyphs in Display and renders percentage pixels in Ideal");
                     gaugeWindow.Close();
                     if (snapshots != null) File.WriteAllText(Path.Combine(snapshots, "native-gauge.xaml"), System.Windows.Markup.XamlWriter.Save(gauge));
                     for (var i = 0; i < homeCards.Length; i++)
@@ -171,7 +199,7 @@ namespace IntelNucStudio.Ec.Tests
                     app.MainWindow = nativeWindow;
                     nativeWindow.Show();
                     await Pump();
-                    var homeEntry = new Button { Content = "EC 风扇控制" };
+                    var homeEntry = new Button { Content = new Image { Source = EcShellIntegration.CreateEcIcon(), Width = 32, Height = 32 }, Template = HomeActionStyle.Template() };
                     var homeStartup = new AutoStartControl(new MemoryAutoStartSettings());
                     var actions = new HomeActionLayout(homeEntry, homeStartup);
                     Assert(actions.Attach(nativeHome), "Actual shipped ProfilesView footer was not found");
@@ -231,7 +259,7 @@ namespace IntelNucStudio.Ec.Tests
                     var startupWindow = new Window { Content = startup, Background = (Brush)app.FindResource("MainBackgroundBrush"),
                         Width = 380, Height = 160, Left = -15000, Top = -15000, Opacity = 0, ShowInTaskbar = false };
                     startupWindow.Show();
-                    foreach (var width in new[] { 220d, 280d, 336d })
+                    foreach (var width in new[] { 48d, 60d, 72d })
                     {
                         startup.Width = width;
                         await startup.RefreshAsync();
@@ -245,7 +273,7 @@ namespace IntelNucStudio.Ec.Tests
                     await Pump();
                     if (snapshots != null) Save(startup, Path.Combine(snapshots, "home-startup-enabled.png"));
                     startupWindow.Close();
-                    pass("Home startup status and keyboard-focusable switch remain readable at three footer widths");
+                    pass("Icon-only startup control stays unclipped and keyboard accessible at three button widths");
                     homeWindow.Close();
                     pass("All five original home card BAML views render with industrial styling and no vendor models/services");
                     app.Resources.Clear();
@@ -290,6 +318,18 @@ namespace IntelNucStudio.Ec.Tests
         }
 
         private static async Task Pump() { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); }
+        private static int LightPixels(FrameworkElement element)
+        {
+            var bitmap = new RenderTargetBitmap((int)element.ActualWidth, (int)element.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+            var drawing = new DrawingVisual();
+            using (var context = drawing.RenderOpen()) context.DrawRectangle(new VisualBrush(element), null, new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            bitmap.Render(drawing);
+            var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4];
+            bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+            var count = 0;
+            for (var i = 0; i < pixels.Length; i += 4) if (pixels[i] > 180 && pixels[i + 1] > 180 && pixels[i + 2] > 180 && pixels[i + 3] > 180) count++;
+            return count;
+        }
         private static T Find<T>(DependencyObject element, Predicate<T> predicate) where T : DependencyObject
         {
             if (element is T value && predicate(value)) return value;

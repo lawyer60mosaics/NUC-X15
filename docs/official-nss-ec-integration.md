@@ -1,3 +1,12 @@
+## 0.1.11 图标操作区、按钮统一与圆环实机修复
+
+- 系统监视器、EC、自启动统一位于原版底部操作行左侧，48 DIP 点击区域、32 DIP 图标、12 DIP 间隔；去除常驻标签，使用悬停提示和 UI Automation 名称。自启动图标通过颜色与勾选标识表达状态，提示包含真实任务开关状态及失败原因。原版系统监视器保留按钮实例、命令及点击事件。
+- 普通操作按钮统一深蓝背景、青蓝边框、4 DIP 圆角、悬停/按下/禁用/焦点状态。共享模板兼容扩展 Content 和原版 Tag 标签；模板更换不修改 Command、CanExecute 或状态绑定。窗口按钮和原版专用图形按钮保留其图形模板。
+- CPU/GPU 数字空白已实机复现：PercentageString 为有效数值、绑定 Active、文字可见且颜色正常，但全局 Display 文本排版在原版 UsageGaugeControl 的嵌套 Viewbox 中丢失数字像素。恢复原版窗口的 Ideal 文本排版，并为 GaugeControl、UsageGaugeControl、RightSideUsageGaugeControl 保留局部 Ideal 保护，修复缩放圆环和按钮标签。最终实机截图 runtime-icons-021-buttons.log.png 显示 CPU 13%、GPU 0% 以及完整的重置按钮文字。
+- 实机诊断截图 runtime-icons-021.log.png 为空白、runtime-icons-021-fixed.log.png 恢复 CPU 40%/GPU 0%；均为相同本机原版程序和服务的只读监控，未开启 EC 接管。验证后用户打开过 EC，测试切换因此停止；用户随后明确交还退出后才继续。诊断记录和截图仅保留在忽略的 artifacts 下，发布包不包含诊断开关或新增临时采集逻辑。
+
+验证：52 项集成场景，包括原版 UsageGaugeControl 的 Display/Ideal 像素差异回归、Tag 文字更新、按钮命令与双向绑定、图标操作区缩放与边界。真实自启动登录执行仍不在本次验证范围。
+
 ## 0.1.10 主页布局修正
 
 撤回 0.1.9 的窗口坐标浮动入口。EC 和自启动现在进入官方 ProfilesView 的 ButtonContent 所在 Grid，与原版系统监视器共用操作行。原版操作行改为 Auto 高度并预留最低 88 DIP，五大卡片占用其上方的空间。没有重挂原版控件或 Prism 区域，仅新增扩展控件；厂商标识保留原位于操作行最右列。空间不足时自启动换到下一行。EC 图标固定 36 DIP、文字 14 DIP，不再反推缩放图标的位置和字号。

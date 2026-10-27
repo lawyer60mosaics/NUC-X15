@@ -74,6 +74,7 @@
   </ControlTemplate></Setter.Value></Setter>
  </Style>
  <Style x:Key="IndustrialButton" TargetType="Button">
+  <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
   <Setter Property="Foreground" Value="{StaticResource MainTextBrush}"/>
   <Setter Property="Background" Value="{StaticResource IndustrialInputBrush}"/>
   <Setter Property="BorderBrush" Value="{StaticResource SeparatorBrush}"/>
@@ -85,12 +86,13 @@
   <Setter Property="Cursor" Value="Hand"/>
   <Setter Property="FocusVisualStyle" Value="{StaticResource IndustrialFocus}"/>
   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-   <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="2" Padding="{TemplateBinding Padding}">
-    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+   <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+    <Viewbox Stretch="Uniform" StretchDirection="DownOnly"><ContentPresenter x:Name="ButtonLabel" HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/></Viewbox>
    </Border>
    <ControlTemplate.Triggers>
+    <Trigger Property="Content" Value="{x:Null}"><Setter TargetName="ButtonLabel" Property="Content" Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"/></Trigger>
     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource IndustrialHoverBrush}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource IconBrush}"/></Trigger>
-    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#345B74"/></Trigger>
+    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#006D91"/></Trigger>
     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="#78DEFC"/></Trigger>
     <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{StaticResource DisableControlForeground}"/><Setter TargetName="Surface" Property="Background" Value="{StaticResource DisableControlBackground}"/></Trigger>
    </ControlTemplate.Triggers>

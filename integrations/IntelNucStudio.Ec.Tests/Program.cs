@@ -129,8 +129,8 @@ namespace IntelNucStudio.Ec.Tests
             Pass("Home-only entry preserves the official visual tree");
             var entryIcon = Find<Image>(entry, value => true);
             var entryLabel = Find<TextBlock>(entry, value => value.Text == "EC 风扇控制");
-            Assert(entry.BorderThickness == new Thickness(0) && entryIcon.Width == 36 && entryIcon.Height == 36
-                && entryLabel.FontSize == 14 && ReferenceEquals(entry.Parent, footer),
+            Assert(entry.BorderThickness == new Thickness(0) && entryIcon.Width == 32 && entryIcon.Height == 32
+                && entryLabel.Visibility == Visibility.Collapsed && ReferenceEquals(entry.Parent, footer),
                 "EC shortcut must match the icon/caption monitor style beside the original shortcut");
             Pass("EC shortcut matches the system monitor icon/caption style without a frame");
             Assert(((SolidColorBrush)entryLabel.Foreground).Color == Color.FromRgb(0, 175, 229),
@@ -327,7 +327,6 @@ namespace IntelNucStudio.Ec.Tests
         private static async Task VerifyResponsiveEntry(Window window, Grid root,
             SystemMonitorMgr.Views.SystemMonitorButtonView monitor, Button entry, Image icon, TextBlock label)
         {
-            var nativeLabel = Find<TextBlock>(monitor, value => value.Text == "系统监视器");
             var nativeIcon = Find<Image>(monitor, value => true);
             // The official shortcut can have a narrow allocated button inside a
             // scaled home view. Its width is not a safe width for our longer caption.
@@ -336,20 +335,10 @@ namespace IntelNucStudio.Ec.Tests
             {
                 window.Width = width;
                 monitor.Width = 100;
-                nativeLabel.FontSize = 14;
                 root.LayoutTransform = new ScaleTransform(scale, scale);
                 await Pump();
                 root.UpdateLayout();
                 await Pump();
-                var text = new FormattedText(label.Text, label.Language.GetEquivalentCulture(), label.FlowDirection,
-                    new Typeface(label.FontFamily, label.FontStyle, label.FontWeight, label.FontStretch),
-                    label.FontSize, label.Foreground, null, TextFormattingMode.Display, VisualTreeHelper.GetDpi(label).PixelsPerDip);
-                var labelBounds = label.TransformToAncestor(entry).TransformBounds(new Rect(label.RenderSize));
-                Assert(label.ActualWidth + 1 >= text.WidthIncludingTrailingWhitespace
-                    && labelBounds.Left >= -1 && labelBounds.Right <= entry.ActualWidth + 1
-                    && labelBounds.Top >= -1 && labelBounds.Bottom <= entry.ActualHeight + 1,
-                    "EC caption clipped at window " + width + ", scale " + scale
-                    + "; text=" + text.WidthIncludingTrailingWhitespace + "; label=" + labelBounds + "; entry=" + entry.RenderSize);
                 var entryBounds = entry.TransformToAncestor(root).TransformBounds(new Rect(entry.RenderSize));
                 var startup = Find<AutoStartControl>(root, value => true);
                 var startupBounds = startup.TransformToAncestor(root).TransformBounds(new Rect(startup.RenderSize));
@@ -359,7 +348,7 @@ namespace IntelNucStudio.Ec.Tests
                 var iconBounds = icon.TransformToAncestor(root).TransformBounds(new Rect(icon.RenderSize));
                 Assert(entryBounds.Right <= root.ActualWidth + 1 && entryBounds.Bottom <= root.ActualHeight + 1,
                     "Shortcut escaped the viewport at " + width + "/" + scale + ": " + entryBounds + "; root=" + root.RenderSize);
-                Assert(label.FontSize >= 14 && icon.Width == 36 && entryBounds.Top >= 0
+                Assert(label.Visibility == Visibility.Collapsed && icon.Width == 32 && entryBounds.Top >= 0
                     && startupBounds.Bottom <= root.ActualHeight + 1,
                     "Reserved footer must keep actions readable and within the viewport at " + width + "/" + scale);
                 if (_snapshotDirectory != null && width == 640)
@@ -386,9 +375,8 @@ namespace IntelNucStudio.Ec.Tests
             window.Width = 1000;
             monitor.Width = 100;
             root.LayoutTransform = Transform.Identity;
-            nativeLabel.FontSize = 12;
             await Pump();
-            Pass("EC caption stays readable and unclipped across 15 window/scale combinations");
+            Pass("Three icon-only actions stay aligned and unclipped across 15 window/scale combinations");
         }
         private static void Click(Button button) { button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
         private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }

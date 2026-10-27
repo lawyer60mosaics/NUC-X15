@@ -21,9 +21,9 @@ namespace IntelNucStudio.Ec
         {
             _settings = settings;
             Name = "NssAutoStartControl";
-            Width = 336;
+            Width = Height = 48;
             System.Windows.Documents.TextElement.SetFontFamily(this, IndustrialTheme.BodyFont);
-            Padding = new Thickness(12, 7, 12, 7);
+            Padding = new Thickness(0);
             Background = Brushes.Transparent;
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition());
@@ -33,10 +33,14 @@ namespace IntelNucStudio.Ec
             var title = new TextBlock { Text = "开机自启动", FontSize = 16, FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center };
             title.SetResourceReference(TextBlock.ForegroundProperty, "MainTextBrush");
+            title.Visibility = Visibility.Collapsed;
             grid.Children.Add(title);
             _toggle = new ToggleButton { Name = "AutoStartToggle", Width = 68, Height = 30,
                 Margin = new Thickness(12, 0, 0, 0), IsChecked = null, Cursor = Cursors.Hand };
-            _toggle.SetResourceReference(Control.TemplateProperty, "IndustrialToggleTemplate");
+            _toggle.Width = _toggle.Height = 48;
+            _toggle.Margin = new Thickness(0);
+            _toggle.Template = HomeActionStyle.Template();
+            _toggle.Content = new Image { Source = HomeActionStyle.Icon(true), Width = 32, Height = 32 };
             _toggle.SetResourceReference(Control.FocusVisualStyleProperty, "IndustrialFocus");
             AutomationProperties.SetName(_toggle, "开机自启动");
             _toggle.Click += async (sender, args) => await ToggleAsync();
@@ -45,6 +49,7 @@ namespace IntelNucStudio.Ec
                 Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap, MaxHeight = 38,
                 TextTrimming = TextTrimming.CharacterEllipsis };
             _status.SetResourceReference(TextBlock.ForegroundProperty, "IndustrialMutedBrush");
+            _status.Visibility = Visibility.Collapsed;
             AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
             Grid.SetRow(_status, 1); Grid.SetColumnSpan(_status, 2); grid.Children.Add(_status);
             Child = grid;
@@ -90,7 +95,10 @@ namespace IntelNucStudio.Ec
             _toggle.IsChecked = actual.Enabled;
             _status.Text = actual.Enabled ? "已开启 · 登录后在托盘运行" : "未开启 · 点击右侧开关启用";
             _status.SetResourceReference(TextBlock.ForegroundProperty, "IndustrialMutedBrush");
-            ToolTip = actual.Description;
+            ToolTip = "开机自启动：" + (actual.Enabled ? "已开启，点击关闭" : "未开启，点击开启") + "\n" + actual.Description;
+            _toggle.ToolTip = ToolTip;
+            ((Image)_toggle.Content).Source = HomeActionStyle.Icon(true, actual.Enabled);
+            AutomationProperties.SetHelpText(_toggle, ToolTip.ToString());
         }
 
         private void Failure(Exception error)
@@ -99,6 +107,8 @@ namespace IntelNucStudio.Ec
             _status.Text = "操作未完成：" + error.Message;
             _status.SetResourceReference(TextBlock.ForegroundProperty, "IndustrialDangerBrush");
             ToolTip = _status.Text;
+            _toggle.ToolTip = "开机自启动：" + _status.Text;
+            AutomationProperties.SetHelpText(_toggle, _status.Text);
         }
     }
 }

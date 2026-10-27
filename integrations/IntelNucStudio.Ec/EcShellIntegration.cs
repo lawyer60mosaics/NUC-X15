@@ -63,6 +63,9 @@ namespace IntelNucStudio.Ec
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.None
             };
+            _entryCaption.Visibility = Visibility.Collapsed;
+            _entryIcon.Width = _entryIcon.Height = 32;
+            _entryIcon.Margin = new Thickness(0);
             var entryContent = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
             entryContent.Children.Add(_entryIcon);
             entryContent.Children.Add(_entryCaption);
@@ -80,12 +83,13 @@ namespace IntelNucStudio.Ec
                 BorderThickness = new Thickness(0),
                 Cursor = Cursors.Hand,
                 UseLayoutRounding = true, SnapsToDevicePixels = true,
-                Template = CreateModuleEntryTemplate(),
+                Template = HomeActionStyle.Template(),
                 ToolTip = "打开 EC 直连风扇控制；不会自动改变厂商性能档位",
                 Visibility = Visibility.Collapsed
             };
             TextOptions.SetTextFormattingMode(_entry, TextFormattingMode.Display);
             _entry.Click += (sender, args) => OpenPage();
+            System.Windows.Automation.AutomationProperties.SetName(_entry, "EC 风扇控制");
             _autoStartControl = new AutoStartControl(AutoStartSettings.ForCurrentApplication())
             {
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
@@ -234,30 +238,7 @@ namespace IntelNucStudio.Ec
             UpdateControlMask();
         }
 
-        private static ControlTemplate CreateModuleEntryTemplate()
-        {
-            var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
-            presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
-            presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Top);
-            var surface = new FrameworkElementFactory(typeof(Border));
-            surface.Name = "EntrySurface";
-            surface.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            surface.SetValue(Border.BorderThicknessProperty, new Thickness(1));
-            surface.SetValue(Border.BorderBrushProperty, Brushes.Transparent);
-            var layout = new FrameworkElementFactory(typeof(Grid));
-            layout.AppendChild(surface);
-            layout.AppendChild(presenter);
-            var template = new ControlTemplate(typeof(Button)) { VisualTree = layout };
-            var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#00AFE5"), "EntrySurface"));
-            template.Triggers.Add(hover);
-            var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true };
-            focus.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#78DEFC"), "EntrySurface"));
-            template.Triggers.Add(focus);
-            return template;
-        }
-
-        private static ImageSource CreateEcIcon()
+        internal static ImageSource CreateEcIcon()
         {
             var drawing = new DrawingGroup();
             drawing.Children.Add(new GeometryDrawing(Brush("#00AFE5"), null, new RectangleGeometry(new Rect(0, 0, 36, 36), 3, 3)));
