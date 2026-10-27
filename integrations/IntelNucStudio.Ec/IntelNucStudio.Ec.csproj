@@ -5,7 +5,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>IntelNucStudio.Ec</AssemblyName>
     <RootNamespace>IntelNucStudio.Ec</RootNamespace>
-    <Version>0.1.11</Version>
+    <Version>0.1.12</Version>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Management" />

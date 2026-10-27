@@ -74,9 +74,9 @@ namespace IntelNucStudio.Ec
                     // Vendor captions live in Tag, while extension controls use
                     // Content. The shared template preserves both contracts.
                     style.Setters.Add(new Setter(Control.TemplateProperty, ((Style)resources["IndustrialButton"]).Setters.FindValue(Control.TemplateProperty)));
-                    style.Setters.Add(new Setter(Control.BackgroundProperty, resources["IndustrialInputBrush"]));
+                    style.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromRgb(32, 61, 82))));
                     style.Setters.Add(new Setter(Control.ForegroundProperty, resources["MainTextBrush"]));
-                    style.Setters.Add(new Setter(Control.BorderBrushProperty, resources["IconBrush"]));
+                    style.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(82, 119, 143))));
                     style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
                     style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(12, 4, 12, 4)));
                 }

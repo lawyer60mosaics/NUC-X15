@@ -63,7 +63,7 @@ namespace IntelNucStudio.Ec
             foreach (var button in FindNativeButtons(_nativeButtons))
             {
                 if (!_adapted.Add(button)) continue;
-                var source = FindImage(button)?.Source ?? HomeActionStyle.Icon(false);
+                var source = HomeActionStyle.Icon(false);
                 button.SetCurrentValue(ContentControl.ContentProperty, new Image { Source = source, Width = 32, Height = 32 });
                 button.Width = button.Height = 48;
                 button.Padding = new Thickness(0);
@@ -80,14 +80,6 @@ namespace IntelNucStudio.Ec
             for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
                 foreach (var child in FindNativeButtons(VisualTreeHelper.GetChild(node, i))) yield return child;
         }
-        private static Image FindImage(DependencyObject node)
-        {
-            if (node is Image image) return image;
-            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
-            { var found = FindImage(VisualTreeHelper.GetChild(node, i)); if (found != null) return found; }
-            return null;
-        }
-
         private void OnSizeChanged(object sender, SizeChangedEventArgs args) => Arrange();
         private void OnNativeLayout(object sender, EventArgs args) => Arrange();
 

@@ -11,10 +11,10 @@ namespace IntelNucStudio.Ec
         {
             var border = new FrameworkElementFactory(typeof(Border));
             border.Name = "Surface";
-            border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            border.SetValue(Border.BorderBrushProperty, Brushes.Transparent);
+            border.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(27, 52, 70)));
+            border.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(56, 87, 108)));
             border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
-            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(3));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
             var content = new FrameworkElementFactory(typeof(ContentPresenter));
             content.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
             content.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
@@ -24,8 +24,12 @@ namespace IntelNucStudio.Ec
             {
                 var trigger = new Trigger { Property = property, Value = true };
                 trigger.Setters.Add(new Setter(Border.BorderBrushProperty, Brushes.DeepSkyBlue, "Surface"));
+                trigger.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(36, 73, 95)), "Surface"));
                 template.Triggers.Add(trigger);
             }
+            var pressed = new Trigger { Property = ButtonBase.IsPressedProperty, Value = true };
+            pressed.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(13, 39, 57)), "Surface"));
+            template.Triggers.Add(pressed);
             var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
             disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 0.5)); template.Triggers.Add(disabled);
             return template;
@@ -35,8 +39,8 @@ namespace IntelNucStudio.Ec
         {
             var group = new DrawingGroup();
             var accent = new SolidColorBrush(enabled == false ? Color.FromRgb(125, 150, 172) : Color.FromRgb(0, 175, 229));
-            group.Children.Add(new GeometryDrawing(accent, null, new RectangleGeometry(new Rect(0, 0, 36, 36), 3, 3)));
-            var pen = new Pen(new SolidColorBrush(Color.FromRgb(17, 33, 48)), 3);
+            group.Children.Add(new GeometryDrawing(Brushes.Transparent, null, new RectangleGeometry(new Rect(0, 0, 36, 36))));
+            var pen = new Pen(accent, 2.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
             group.Children.Add(new GeometryDrawing(null, pen, Geometry.Parse(startup
                 ? "M18,5 L18,18 M11,10 A11,11 0 1 0 25,10"
                 : "M3,20 L9,20 L13,7 L19,29 L24,15 L33,15")));

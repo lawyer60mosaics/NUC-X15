@@ -273,6 +273,7 @@ namespace IntelNucStudio.Ec.Tests
                     await Pump();
                     if (snapshots != null) Save(startup, Path.Combine(snapshots, "home-startup-enabled.png"));
                     startupWindow.Close();
+                    if (snapshots != null) await SaveButtonPreview(app, snapshots);
                     pass("Icon-only startup control stays unclipped and keyboard accessible at three button widths");
                     homeWindow.Close();
                     pass("All five original home card BAML views render with industrial styling and no vendor models/services");
@@ -318,6 +319,31 @@ namespace IntelNucStudio.Ec.Tests
         }
 
         private static async Task Pump() { await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); }
+        private static async Task SaveButtonPreview(Application app, string snapshots)
+        {
+            var content = new StackPanel { Margin = new Thickness(24) };
+            content.Children.Add(new TextBlock { Text = "按钮与开关样式", FontSize = 22, Foreground = (Brush)app.FindResource("MainTextBrush"), Margin = new Thickness(0, 0, 0, 20) });
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var option in new[] { new { Text = "应用设置", Style = "IndustrialPrimaryButton", Enabled = true },
+                new { Text = "恢复默认", Style = "IndustrialButton", Enabled = true }, new { Text = "暂不可用", Style = "IndustrialButton", Enabled = false } })
+                buttons.Children.Add(new Button { Content = option.Text, Style = (Style)app.FindResource(option.Style),
+                    Width = 152, Height = 42, Margin = new Thickness(0, 0, 12, 0), IsEnabled = option.Enabled });
+            content.Children.Add(buttons);
+            var toggles = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 22, 0, 22) };
+            foreach (var value in new[] { false, true }) toggles.Children.Add(new ToggleButton { IsChecked = value, Width = 88, Height = 32,
+                Margin = new Thickness(0, 0, 18, 0), Template = (ControlTemplate)app.FindResource("IndustrialToggleTemplate") });
+            content.Children.Add(toggles);
+            var icons = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var source in new[] { HomeActionStyle.Icon(false), EcShellIntegration.CreateEcIcon(), HomeActionStyle.Icon(true, true) })
+                icons.Children.Add(new Button { Width = 48, Height = 48, Margin = new Thickness(0, 0, 12, 0), Template = HomeActionStyle.Template(),
+                    Content = new Image { Source = source, Width = 32, Height = 32 } });
+            content.Children.Add(icons);
+            var surface = new Border { Background = (Brush)app.FindResource("MainBackgroundBrush"), Child = content };
+            var window = new Window { Width = 570, Height = 300, Content = surface, Left = -15000, Top = -15000, Opacity = 0, ShowInTaskbar = false };
+            window.Show(); await Pump(); window.UpdateLayout(); await Pump();
+            Save(surface, Path.Combine(snapshots, "button-style-preview.png"));
+            window.Close();
+        }
         private static int LightPixels(FrameworkElement element)
         {
             var bitmap = new RenderTargetBitmap((int)element.ActualWidth, (int)element.ActualHeight, 96, 96, PixelFormats.Pbgra32);

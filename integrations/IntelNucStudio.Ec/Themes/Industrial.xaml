@@ -76,25 +76,29 @@
  <Style x:Key="IndustrialButton" TargetType="Button">
   <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
   <Setter Property="Foreground" Value="{StaticResource MainTextBrush}"/>
-  <Setter Property="Background" Value="{StaticResource IndustrialInputBrush}"/>
-  <Setter Property="BorderBrush" Value="{StaticResource SeparatorBrush}"/>
+  <Setter Property="Background" Value="#203D52"/>
+  <Setter Property="BorderBrush" Value="#52778F"/>
   <Setter Property="BorderThickness" Value="1"/>
   <Setter Property="Padding" Value="16,9"/>
+  <Setter Property="MinHeight" Value="36"/>
   <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/>
   <Setter Property="FontSize" Value="15"/>
   <Setter Property="FontWeight" Value="SemiBold"/>
   <Setter Property="Cursor" Value="Hand"/>
   <Setter Property="FocusVisualStyle" Value="{StaticResource IndustrialFocus}"/>
   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-   <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
-    <Viewbox Stretch="Uniform" StretchDirection="DownOnly"><ContentPresenter x:Name="ButtonLabel" HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/></Viewbox>
+   <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+    <Grid>
+     <Border x:Name="Feedback" Background="White" Opacity="0" CornerRadius="6" IsHitTestVisible="False"/>
+     <Viewbox Margin="{TemplateBinding Padding}" Stretch="Uniform" StretchDirection="DownOnly"><ContentPresenter x:Name="ButtonLabel" HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/></Viewbox>
+    </Grid>
    </Border>
    <ControlTemplate.Triggers>
     <Trigger Property="Content" Value="{x:Null}"><Setter TargetName="ButtonLabel" Property="Content" Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"/></Trigger>
-    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource IndustrialHoverBrush}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource IconBrush}"/></Trigger>
-    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#006D91"/></Trigger>
+    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Feedback" Property="Opacity" Value="0.07"/><Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource IconBrush}"/></Trigger>
+    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Feedback" Property="Background" Value="Black"/><Setter TargetName="Feedback" Property="Opacity" Value="0.14"/><Setter TargetName="Surface" Property="BorderBrush" Value="#78DEFC"/></Trigger>
     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="#78DEFC"/></Trigger>
-    <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{StaticResource DisableControlForeground}"/><Setter TargetName="Surface" Property="Background" Value="{StaticResource DisableControlBackground}"/></Trigger>
+    <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{StaticResource DisableControlForeground}"/><Setter TargetName="Surface" Property="Background" Value="{StaticResource DisableControlBackground}"/><Setter TargetName="Feedback" Property="Opacity" Value="0"/></Trigger>
    </ControlTemplate.Triggers>
   </ControlTemplate></Setter.Value></Setter>
  </Style>
@@ -105,23 +109,23 @@
   <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/><Setter Property="FontSize" Value="14"/>
  </Style>
  <Style x:Key="IndustrialPrimaryButton" TargetType="Button" BasedOn="{StaticResource IndustrialButton}">
-  <Setter Property="Background" Value="#07516B"/><Setter Property="BorderBrush" Value="{StaticResource IconBrush}"/>
+  <Setter Property="Background" Value="#006582"/><Setter Property="BorderBrush" Value="#39BEDF"/>
  </Style>
  <ControlTemplate x:Key="IndustrialToggleTemplate" TargetType="ToggleButton">
-  <Border x:Name="Frame" BorderThickness="1" BorderBrush="{StaticResource SeparatorBrush}" CornerRadius="2" Background="{StaticResource IndustrialInputBrush}">
-   <Grid Margin="3"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
-    <Border x:Name="TextBorder" Grid.Column="1" Background="#314B60" CornerRadius="1">
-     <TextBlock x:Name="Label" Text="关" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource MainTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+  <Border x:Name="Frame" BorderThickness="1" BorderBrush="#52778F" CornerRadius="20" Background="#28465A">
+   <Grid Margin="3">
+    <Border x:Name="TextBorder" Background="Transparent" CornerRadius="16">
+     <TextBlock x:Name="Label" Text="关" Margin="0,0,7,0" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource MainTextBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
     </Border>
-    <Border x:Name="ToggleBorder" Grid.Column="0" Margin="8,9" CornerRadius="1" Background="#526E83"/>
+    <Border x:Name="ToggleBorder" Width="20" Height="20" HorizontalAlignment="Left" VerticalAlignment="Center" CornerRadius="10" Background="#D7E7F2"/>
    </Grid>
   </Border>
   <ControlTemplate.Triggers>
-   <Trigger Property="IsChecked" Value="True"><Setter TargetName="TextBorder" Property="Grid.Column" Value="0"/><Setter TargetName="TextBorder" Property="Background" Value="{StaticResource IconBrush}"/><Setter TargetName="ToggleBorder" Property="Grid.Column" Value="1"/><Setter TargetName="ToggleBorder" Property="Background" Value="#6C8CA2"/><Setter TargetName="Label" Property="Text" Value="开"/><Setter TargetName="Label" Property="Foreground" Value="{StaticResource IndustrialAccentTextBrush}"/></Trigger>
+   <Trigger Property="IsChecked" Value="True"><Setter TargetName="Frame" Property="Background" Value="#006582"/><Setter TargetName="Frame" Property="BorderBrush" Value="#39BEDF"/><Setter TargetName="ToggleBorder" Property="HorizontalAlignment" Value="Right"/><Setter TargetName="ToggleBorder" Property="Background" Value="#F0F8FC"/><Setter TargetName="Label" Property="Text" Value="开"/><Setter TargetName="Label" Property="HorizontalAlignment" Value="Left"/><Setter TargetName="Label" Property="Margin" Value="7,0,0,0"/></Trigger>
    <Trigger Property="IsChecked" Value="{x:Null}"><Setter TargetName="Label" Property="Text" Value="—"/></Trigger>
    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource IconBrush}"/></Trigger>
    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="#78DEFC"/></Trigger>
-   <Trigger Property="IsEnabled" Value="False"><Setter TargetName="TextBorder" Property="Background" Value="{StaticResource DisableControlBackground}"/><Setter TargetName="Label" Property="Foreground" Value="{StaticResource DisableControlForeground}"/><Setter TargetName="ToggleBorder" Property="Background" Value="#415D72"/></Trigger>
+   <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Frame" Property="Background" Value="{StaticResource DisableControlBackground}"/><Setter TargetName="Label" Property="Foreground" Value="{StaticResource DisableControlForeground}"/><Setter TargetName="ToggleBorder" Property="Background" Value="#7891A4"/></Trigger>
   </ControlTemplate.Triggers>
  </ControlTemplate>
  <Style x:Key="IndustrialThumb" TargetType="Thumb">

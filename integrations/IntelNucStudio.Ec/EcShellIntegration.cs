@@ -241,10 +241,10 @@ namespace IntelNucStudio.Ec
         internal static ImageSource CreateEcIcon()
         {
             var drawing = new DrawingGroup();
-            drawing.Children.Add(new GeometryDrawing(Brush("#00AFE5"), null, new RectangleGeometry(new Rect(0, 0, 36, 36), 3, 3)));
+            drawing.Children.Add(new GeometryDrawing(Brushes.Transparent, null, new RectangleGeometry(new Rect(0, 0, 36, 36))));
             var fan = Geometry.Parse("M18,16 C9,17 6,11 10,7 C15,3 20,9 20,14 Z M20,18 C25,9 32,12 32,18 C32,25 24,24 21,21 Z M17,20 C22,27 17,33 12,30 C6,27 10,22 14,19 Z");
-            drawing.Children.Add(new GeometryDrawing(Brush("#10212C"), null, fan));
-            drawing.Children.Add(new GeometryDrawing(Brush("#10212C"), null, new EllipseGeometry(new Point(18, 18), 3, 3)));
+            drawing.Children.Add(new GeometryDrawing(Brush("#00AFE5"), null, fan));
+            drawing.Children.Add(new GeometryDrawing(Brush("#00AFE5"), null, new EllipseGeometry(new Point(18, 18), 3, 3)));
             drawing.Freeze();
             return new DrawingImage(drawing);
         }
